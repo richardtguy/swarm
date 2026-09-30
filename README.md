@@ -164,6 +164,7 @@ Each file holds one concept, and tests sit in a matching path under `tests/`. Th
   - sliders for fielder speed, comms range, latency, packet loss, and launch rate and pattern;
   - a collision mode selector;
   - a "kill fielders" button;
+  - fielder and ball counts (restart the run);
   - pause, step, reset, and seed selection.
 
 ---
