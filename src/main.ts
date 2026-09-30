@@ -1,83 +1,73 @@
 /**
- * Browser entry point. Phase 0 runs the simulation on the main thread and shows the tick,
- * time and state hash. The Web Worker host and renderers arrive in Phase 1.
+ * Browser entry point: runs the simulation in a Web Worker, draws the latest frame with the 2D
+ * renderer, and wires the control and metrics panels.
  */
-import { Simulation } from './core/sim';
-import { FixedStepAccumulator } from './core/loop';
-import { DEFAULT_CONFIG, cloneConfig } from './core/config';
+import { TopDown2D } from './render/topdown2d/topDown2D';
+import type { RenderFrame } from './render/types';
+import { Controls } from './ui/controls';
+import { MetricsPanel } from './ui/metricsPanel';
+import type { FrameMessage, WorkerCommand, WorkerMessage } from './worker/protocol';
 
-const HASH_TICKS = 500;
-
-function byId<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (el === null) throw new Error(`Missing element #${id}`);
-  return el as T;
+function byId(id: string): HTMLElement {
+  const node = document.getElementById(id);
+  if (node === null) throw new Error(`Missing element #${id}`);
+  return node;
 }
 
-const tickEl = byId<HTMLElement>('tick');
-const timeEl = byId<HTMLElement>('time');
-const aliveEl = byId<HTMLElement>('alive');
-const hashEl = byId<HTMLElement>('hash');
-const pauseBtn = byId<HTMLButtonElement>('pause');
-const stepBtn = byId<HTMLButtonElement>('step');
-const resetBtn = byId<HTMLButtonElement>('reset');
-const seedInput = byId<HTMLInputElement>('seed');
-const hashRunBtn = byId<HTMLButtonElement>('hash-run');
+const worker = new Worker(new URL('./worker/simWorker.ts', import.meta.url), { type: 'module' });
+const send = (message: WorkerCommand): void => worker.postMessage(message);
 
-const sim = new Simulation(DEFAULT_CONFIG);
-const clock = new FixedStepAccumulator(sim.config.dt);
-let lastFrame: number | null = null;
+const controls = new Controls({
+  onCommand: (command) => send({ type: 'command', command }),
+  onTimeScale: (timeScale) => send({ type: 'setTimeScale', timeScale }),
+});
+const metrics = new MetricsPanel({
+  onRequestHash: () => send({ type: 'requestHash' }),
+});
+const renderer = new TopDown2D();
 
-function render(): void {
-  const m = sim.metrics();
-  tickEl.textContent = String(m.tick);
-  timeEl.textContent = m.time.toFixed(2);
-  aliveEl.textContent = `${m.fieldersAlive} / ${m.fieldersTotal}`;
-  hashEl.innerHTML = `<code>${sim.hash()}</code>`;
-  pauseBtn.textContent = sim.paused ? 'Resume' : 'Pause';
-}
+byId('controls').append(controls.element);
+byId('metrics').append(metrics.element);
+byId('view').append(renderer.element);
 
-function frame(now: number): void {
-  if (lastFrame !== null && !sim.paused) {
-    const steps = clock.advance((now - lastFrame) / 1000);
-    for (let i = 0; i < steps; i++) sim.advance();
+let latest: FrameMessage | null = null;
+let selectedFielder: number | null = null;
+let needsDraw = false;
+
+renderer.element.addEventListener('click', (event) => {
+  selectedFielder = renderer.pick(event.clientX, event.clientY);
+  needsDraw = true;
+});
+
+worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+  const message = event.data;
+  switch (message.type) {
+    case 'ready':
+      send({ type: 'command', command: { type: 'init', config: controls.buildConfig() } });
+      break;
+    case 'frame':
+      latest = message;
+      needsDraw = true;
+      controls.setPaused(message.paused);
+      metrics.update(message.metrics, message.strategy, message.finished);
+      break;
+    case 'hash':
+      metrics.showHash(message.tick, message.hash);
+      break;
+    case 'error':
+      metrics.showError(message.message);
+      break;
   }
-  lastFrame = now;
-  render();
-  requestAnimationFrame(frame);
+};
+
+function draw(): void {
+  if (needsDraw && latest !== null) {
+    const frame: RenderFrame = { snapshot: latest.snapshot, selectedFielder };
+    renderer.render(frame);
+    needsDraw = false;
+  }
+  requestAnimationFrame(draw);
 }
 
-function configFromInputs() {
-  const config = cloneConfig(DEFAULT_CONFIG);
-  const seed = Number.parseInt(seedInput.value, 10);
-  if (Number.isFinite(seed)) config.seed = seed;
-  return config;
-}
-
-pauseBtn.addEventListener('click', () => {
-  sim.apply({ type: sim.paused ? 'resume' : 'pause' });
-  clock.clear();
-  render();
-});
-
-stepBtn.addEventListener('click', () => {
-  sim.apply({ type: 'step' });
-  render();
-});
-
-resetBtn.addEventListener('click', () => {
-  sim.apply({ type: 'init', config: configFromInputs() });
-  clock.clear();
-  render();
-});
-
-hashRunBtn.addEventListener('click', () => {
-  sim.apply({ type: 'init', config: configFromInputs() });
-  sim.apply({ type: 'pause' });
-  sim.apply({ type: 'step', ticks: HASH_TICKS });
-  clock.clear();
-  render();
-});
-
-render();
-requestAnimationFrame(frame);
+renderer.resize();
+requestAnimationFrame(draw);

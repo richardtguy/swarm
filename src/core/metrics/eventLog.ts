@@ -5,8 +5,14 @@
 
 /** A simulation event. Every event carries the tick at which it happened. */
 export type SimEvent =
+  /** A ball was launched. */
+  | { type: 'LAUNCH'; tick: number; ballId: number }
+  /** A fielder caught a ball. */
+  | { type: 'CATCH'; tick: number; ballId: number; fielderId: number }
+  /** A ball hit the ground uncaught. */
+  | { type: 'DROP'; tick: number; ballId: number }
   /** A fielder was killed by command. */
-  { type: 'KILL'; tick: number; fielderId: number };
+  | { type: 'KILL'; tick: number; fielderId: number };
 
 /** Append-only event log with a drain for incremental consumers such as the worker. */
 export class EventLog {

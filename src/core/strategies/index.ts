@@ -2,16 +2,23 @@
  * Strategy registry. This is the one folder-level index allowed in the codebase, and it is a
  * registry rather than a re-export: import strategy modules directly if you need their types.
  */
+import { centralisedStrategy } from './centralised';
 import { idleStrategy } from './idle';
 import type { AnyStrategy } from './types';
 
 const registry: ReadonlyMap<string, AnyStrategy> = new Map<string, AnyStrategy>([
+  [centralisedStrategy.name, centralisedStrategy],
   [idleStrategy.name, idleStrategy],
 ]);
 
 /** Names of all registered strategies, in registration order. */
 export function strategyNames(): string[] {
   return [...registry.keys()];
+}
+
+/** Whether `name` is a registered strategy. */
+export function hasStrategy(name: string): boolean {
+  return registry.has(name);
 }
 
 /** Look up a strategy by name. Throws if unknown. */

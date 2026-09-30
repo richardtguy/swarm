@@ -1,0 +1,15 @@
+{
+  "name": "dense-salvo",
+  "seed": 7,
+  "duration": 15,
+  "fielders": { "count": 60, "maxSpeed": 7, "maxAccel": 4 },
+  "launch": {
+    "pattern": "salvo",
+    "count": 60,
+    "zones": [{ "x": 0, "y": -70, "radius": 8 }],
+    "speed": { "min": 20, "max": 30 },
+    "elevation_deg": { "min": 40, "max": 70 },
+    "azimuthSpread_deg": 70
+  },
+  "strategy": { "name": "centralised" }
+}

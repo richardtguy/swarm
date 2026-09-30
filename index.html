@@ -7,34 +7,14 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <main id="app">
-      <h1>Swarm Fielding</h1>
-      <p class="phase">Phase 0 — an empty simulation stepping at a fixed timestep.</p>
-      <dl class="readout">
-        <dt>Tick</dt>
-        <dd id="tick">0</dd>
-        <dt>Sim time (s)</dt>
-        <dd id="time">0.00</dd>
-        <dt>Fielders alive</dt>
-        <dd id="alive">0</dd>
-        <dt>State hash</dt>
-        <dd id="hash"><code>—</code></dd>
-      </dl>
-      <div class="controls">
-        <button id="pause" type="button">Pause</button>
-        <button id="step" type="button">Step</button>
-        <button id="reset" type="button">Reset</button>
-        <label>
-          Seed
-          <input id="seed" type="number" value="42" min="0" step="1" />
-        </label>
-        <button id="hash-run" type="button">Reset and run 500 ticks</button>
-      </div>
-      <p class="hint">
-        Compare the hash after 500 ticks with
-        <code>npm run sim -- --seed 42 --ticks 500</code>. They must match.
-      </p>
-    </main>
+    <div id="app">
+      <header id="header">
+        <h1>Swarm Fielding</h1>
+        <div id="controls"></div>
+      </header>
+      <main id="view"></main>
+      <aside id="metrics"></aside>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

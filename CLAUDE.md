@@ -179,8 +179,9 @@ swarm-fielding/
 │   │       ├── schema.ts       # hand-written validator with clear errors
 │   │       └── loader.ts
 │   ├── worker/
-│   │   ├── simWorker.ts        # hosts Simulation in a Web Worker
-│   │   └── protocol.ts         # command + snapshot message types
+│   │   ├── simWorker.ts        # Web Worker entry: binds SimHost to self + a timer
+│   │   ├── simHost.ts          # protocol handling + fixed-step pumping, testable in Node
+│   │   └── protocol.ts         # command + frame message types
 │   ├── render/
 │   │   ├── types.ts            # Renderer interface
 │   │   ├── interpolate.ts
@@ -192,6 +193,7 @@ swarm-fielding/
 │   │       ├── overlays.ts     # arcs, landing rings, claim lines, comms links
 │   │       └── coords.ts       # the ONLY core→three axis conversion
 │   ├── ui/
+│   │   ├── dom.ts              # tiny element helpers
 │   │   ├── controls.ts         # strategy dropdown, sliders, buttons
 │   │   ├── inspector.ts        # selected fielder: local view, claims, inbox
 │   │   └── metricsPanel.ts
@@ -298,7 +300,7 @@ Strategies must not hold per-agent state in module scope or closures. Everything
 
 ### Reachability (shared by all strategies)
 
-`agents/kinematics.ts` exports `timeToReach(pos, vel, target, maxSpeed, maxAccel)`, which uses an accel-limited profile starting from the current velocity. Two derived quantities build on it:
+`agents/kinematics.ts` exports `timeToReach(pos, vel, target, maxSpeed, maxAccel)`, which uses an accel-limited profile starting from the current velocity: velocity across the approach line is cancelled first (the fielder drifts while that happens), then the fielder cancels any velocity away from the target, accelerates, cruises and brakes to rest. `agents/steering.ts` executes exactly that policy, so the estimate and the motion agree; keep the two consistent when changing either. Two derived quantities build on it:
 
 - `slack = predictedArrivalTime - (now + timeToReach)`
 - a ball is **feasible** for a fielder when `slack >= feasibilityMargin`
@@ -493,8 +495,8 @@ Avoidance is *behaviour*: fielders try not to collide. Collisions are *physics*:
 Work on the current phase unless asked otherwise. The detailed goals for each phase are in `README.md`.
 
 - [x] **Phase 0 — Scaffolding.** Toolchain, core types, RNG, vec3, fixed-step loop, determinism test, lint purity rules.
-- [ ] **Phase 1 — World and oracle.** Ballistics, launcher, the 2D renderer, the Worker, the centralised Hungarian oracle.
-- [ ] **Phase 2 — Autonomous agents.** Perception, `LocalView`, greedy strategy, steering, separation, metrics panel.
+- [x] **Phase 1 — World and oracle.** Ballistics, launcher, the 2D renderer, the Worker, the centralised Hungarian oracle. (Also pulled forward: `timeToReach`, arrive steering, the hash grid, the scenario validator and the metrics panel, because the oracle's fielders need them.)
+- [ ] **Phase 2 — Autonomous agents.** Perception, `LocalView`, greedy strategy, separation, inspector groundwork.
 - [ ] **Phase 3 — Communication and claims.** Message bus, claims protocol, comms sliders, the kill-fielders command, the inspector.
 - [ ] **Phase 4 — 3D view.** three.js scene, instancing, camera rig and presets, overlays, 2D/3D toggle.
 - [ ] **Phase 5 — Collisions.** Collision detection, simple push-apart response, configurable consequence modes (bounce, penalty, destructive, graded), bumps in `LocalView`, collision metrics, rendering and controls.
@@ -502,7 +504,7 @@ Work on the current phase unless asked otherwise. The detailed goals for each ph
 - [ ] **Phase 7 — Advanced coordination and realism.** Auction/CBBA, noisy perception with a Kalman filter, drag and wind, multi-hop relay, heterogeneous fielders, coverage idle policy, ORCA, momentum-based collisions with mass.
 - [ ] **Phase 8 — Drones.** Airborne fielders, quadrotor-like dynamics, mid-air intercept, swept collision detection, energy/endurance limits.
 
-**Current phase:** Phase 1.
+**Current phase:** Phase 2.
 
 ---
 

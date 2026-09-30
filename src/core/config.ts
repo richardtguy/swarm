@@ -161,7 +161,7 @@ export const DEFAULT_CONFIG: Readonly<SimConfig> = Object.freeze({
   sensing: { range: 60, noise: 0 },
   comms: { range: 30, latency: 0.1, lossProb: 0, bandwidth: 8 },
   strategy: {
-    name: 'idle',
+    name: 'centralised',
     feasibilityMargin: 0.1,
     switchMargin: 0.3,
     claimMargin: 0.15,

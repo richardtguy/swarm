@@ -4,7 +4,19 @@
   --muted: #6b6b66;
   --panel: #ffffff;
   --border: #d9d9d4;
-  --accent: #2f6fd6;
+  --accent: #e0a800;
+  --oracle: #b0521a;
+
+  --field: #5aa860;
+  --field-line: rgba(255, 255, 255, 0.3);
+  --zone: #c9741c;
+  --fielder: #1f4fb5;
+  --fielder-idle: #90a9d8;
+  --fielder-dead: #6b6b66;
+  --ball: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --landing: rgba(255, 255, 255, 0.8);
+  --target-line: rgba(20, 40, 90, 0.45);
   color-scheme: light dark;
 }
 
@@ -15,7 +27,19 @@
     --muted: #9a9a94;
     --panel: #1f2026;
     --border: #33343c;
-    --accent: #6ea0ff;
+    --accent: #ffd23f;
+    --oracle: #f0955a;
+
+    --field: #2f5e37;
+    --field-line: rgba(255, 255, 255, 0.12);
+    --zone: #e3a04a;
+    --fielder: #6ea0ff;
+    --fielder-idle: #4a5f85;
+    --fielder-dead: #777;
+    --ball: #f4f4f4;
+    --shadow: rgba(0, 0, 0, 0.6);
+    --landing: rgba(255, 255, 255, 0.6);
+    --target-line: rgba(200, 220, 255, 0.35);
   }
 }
 
@@ -23,42 +47,104 @@
   box-sizing: border-box;
 }
 
+html,
 body {
+  height: 100%;
   margin: 0;
+}
+
+body {
   background: var(--bg);
   color: var(--fg);
   font:
-    15px/1.5 system-ui,
+    14px/1.45 system-ui,
     -apple-system,
     'Segoe UI',
     sans-serif;
 }
 
 #app {
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 1.5rem 1rem;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr 17rem;
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'header header'
+    'view metrics';
 }
 
-h1 {
-  font-size: 1.5rem;
-  margin: 0 0 0.25rem;
+#header {
+  grid-area: header;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
 }
 
-.phase,
-.hint {
+#header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+#view {
+  grid-area: view;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+
+#metrics {
+  grid-area: metrics;
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+}
+
+@media (max-width: 720px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(45vh, 1fr) auto;
+    grid-template-areas:
+      'header'
+      'view'
+      'metrics';
+  }
+  #metrics {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+canvas.topdown2d {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   color: var(--muted);
 }
 
 .readout {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.25rem 1rem;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  margin: 1rem 0;
+  gap: 0.15rem 0.75rem;
+  margin: 0.5rem 0;
 }
 
 .readout dt {
@@ -70,20 +156,40 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-.controls {
+.strategy {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+.strategy.oracle {
+  color: var(--oracle);
+}
+
+.status {
+  margin: 0.25rem 0;
+  color: var(--muted);
+}
+
+.hash {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  word-break: break-all;
+}
+
+button,
+select,
+input[type='number'] {
+  font: inherit;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
 }
 
 button {
-  font: inherit;
-  padding: 0.35rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg);
   cursor: pointer;
 }
 
@@ -92,16 +198,10 @@ button:hover {
 }
 
 input[type='number'] {
-  font: inherit;
-  width: 6rem;
-  padding: 0.3rem 0.5rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg);
+  width: 5.5rem;
 }
 
 code {
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 0.9em;
+  font-size: 0.85em;
 }

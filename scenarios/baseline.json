@@ -1,0 +1,22 @@
+{
+  "name": "baseline",
+  "seed": 42,
+  "dt": 0.02,
+  "duration": 60,
+  "field": { "width": 120, "length": 120 },
+  "fielders": { "count": 100, "layout": "grid", "maxSpeed": 7, "maxAccel": 4 },
+  "launch": {
+    "pattern": "staggered",
+    "count": 100,
+    "ratePerSecond": 3,
+    "zones": [{ "x": 0, "y": -70, "radius": 5 }],
+    "speed": { "min": 18, "max": 28 },
+    "elevation_deg": { "min": 35, "max": 65 },
+    "azimuthSpread_deg": 50
+  },
+  "catch": { "radius": 1.0, "height": 1.5 },
+  "collisions": { "mode": "off" },
+  "sensing": { "range": 60, "noise": 0 },
+  "comms": { "range": 30, "latency": 0.1, "lossProb": 0, "bandwidth": 8 },
+  "strategy": { "name": "centralised", "replanInterval": 25, "feasibilityMargin": 0.1 }
+}

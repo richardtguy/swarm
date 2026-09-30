@@ -1,27 +1,33 @@
 /**
  * Headless single run. Prints summary metrics and the final state hash as JSON.
  *
- *   npm run sim -- --seed 42 --ticks 500
- *   npm run sim -- --seed 7 --fielders 250 --duration 30
+ *   npm run sim -- --scenario scenarios/baseline.json --seed 42
+ *   npm run sim -- --seed 7 --fielders 250 --duration 30 --ticks 500
  *
- * Scenario files (`--scenario path.json`) arrive with the scenario loader in Phase 1.
+ * Flags after `--scenario` override the file's values.
  */
-import { DEFAULT_CONFIG, cloneConfig } from '../src/core/config';
+import { readFileSync } from 'node:fs';
+import { DEFAULT_CONFIG, cloneConfig, type SimConfig } from '../src/core/config';
+import { parseScenario } from '../src/core/scenario/loader';
 import { Simulation } from '../src/core/sim';
 
 interface Args {
-  seed: number;
+  scenario: string | null;
+  seed: number | null;
   ticks: number | null;
-  fielders: number;
-  duration: number;
+  fielders: number | null;
+  duration: number | null;
+  strategy: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {
-    seed: DEFAULT_CONFIG.seed,
+    scenario: null,
+    seed: null,
     ticks: null,
-    fielders: DEFAULT_CONFIG.fielders.count,
-    duration: DEFAULT_CONFIG.duration,
+    fielders: null,
+    duration: null,
+    strategy: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -32,7 +38,15 @@ function parseArgs(argv: string[]): Args {
       i++;
       return n;
     };
+    const string = (): string => {
+      if (value === undefined) throw new Error(`${flag} needs a value`);
+      i++;
+      return value;
+    };
     switch (flag) {
+      case '--scenario':
+        args.scenario = string();
+        break;
       case '--seed':
         args.seed = number();
         break;
@@ -45,8 +59,9 @@ function parseArgs(argv: string[]): Args {
       case '--duration':
         args.duration = number();
         break;
-      case '--scenario':
-        throw new Error('--scenario is not supported until the scenario loader lands (Phase 1)');
+      case '--strategy':
+        args.strategy = string();
+        break;
       default:
         throw new Error(`Unknown argument "${flag}"`);
     }
@@ -54,13 +69,21 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
+function buildConfig(args: Args): SimConfig {
+  const config =
+    args.scenario === null
+      ? cloneConfig(DEFAULT_CONFIG)
+      : parseScenario(readFileSync(args.scenario, 'utf8'), args.scenario);
+  if (args.seed !== null) config.seed = args.seed;
+  if (args.fielders !== null) config.fielders.count = args.fielders;
+  if (args.duration !== null) config.duration = args.duration;
+  if (args.strategy !== null) config.strategy.name = args.strategy;
+  return config;
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
-  const config = cloneConfig(DEFAULT_CONFIG);
-  config.seed = args.seed;
-  config.fielders.count = args.fielders;
-  config.duration = args.duration;
-
+  const config = buildConfig(args);
   const sim = new Simulation(config);
   if (args.ticks !== null) {
     sim.run(args.ticks);
@@ -79,4 +102,9 @@ function main(): void {
   console.log(JSON.stringify(output, null, 2));
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}

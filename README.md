@@ -284,7 +284,7 @@ Add headless single runs and batch parameter sweeps across seeds, with CSV and J
 ### Roadmap status
 
 - [x] Phase 0 — Scaffolding
-- [ ] Phase 1 — World and benchmark
+- [x] Phase 1 — World and benchmark
 - [ ] Phase 2 — Autonomous fielders
 - [ ] Phase 3 — Communication and claims
 - [ ] Phase 4 — 3D visualisation
