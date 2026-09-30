@@ -288,7 +288,7 @@ Add headless single runs and batch parameter sweeps across seeds, with CSV and J
 - [x] Phase 1 — World and benchmark
 - [x] Phase 2 — Autonomous fielders
 - [ ] Phase 3 — Communication and claims
-- [ ] Phase 4 — 3D visualisation
+- [x] Phase 4 — 3D visualisation
 - [ ] Phase 5 — Collisions
 - [ ] Phase 6 — Experiment harness
 - [ ] Phase 7 — Advanced coordination and realism

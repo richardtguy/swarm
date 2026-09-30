@@ -183,18 +183,22 @@ swarm-fielding/
 │   │   ├── simHost.ts          # protocol handling + fixed-step pumping, testable in Node
 │   │   └── protocol.ts         # command + frame message types
 │   ├── render/
-│   │   ├── types.ts            # Renderer interface
-│   │   ├── interpolate.ts
+│   │   ├── types.ts            # Renderer interface, OverlaySettings
+│   │   ├── interpolate.ts      # blends the last two snapshots for smooth motion
+│   │   ├── colours.ts          # pursued-ball hue shared by both renderers
+│   │   ├── landing.ts          # landing-ring radius from sensing noise
 │   │   ├── topdown2d/          # Canvas 2D renderer
 │   │   └── three/
 │   │       ├── scene3d.ts
 │   │       ├── instancing.ts   # InstancedMesh management
 │   │       ├── cameraRig.ts    # presets (top-down, stadium, follow); wraps OrbitControls
 │   │       ├── overlays.ts     # arcs, landing rings, claim lines, comms links
+│   │       ├── palette.ts      # CSS custom properties → three.js colours
 │   │       └── coords.ts       # the ONLY core→three axis conversion
 │   ├── ui/
 │   │   ├── dom.ts              # tiny element helpers
 │   │   ├── controls.ts         # strategy dropdown, sliders, buttons
+│   │   ├── viewControls.ts     # 2D/3D toggle, camera presets, overlay switches
 │   │   ├── inspector.ts        # selected fielder: local view, claims, inbox
 │   │   └── metricsPanel.ts
 │   └── main.ts
@@ -429,6 +433,8 @@ Avoidance is *behaviour*: fielders try not to collide. Collisions are *physics*:
   - `TopDown2D` (Canvas 2D), which is the clearest view for explaining allocation;
   - `Scene3D` (three.js).
 - Fielders and balls use `InstancedMesh`: one draw call per entity type.
+- **Display scale.** At true scale, 0.4 m fielders and fist-sized balls on a 120 m field are invisible, so `scene3d.ts` draws bodies enlarged (fielders at twice `bodyRadius`, balls at 0.5 m). Positions are never scaled.
+- **Interpolation.** Renderers draw one snapshot interval behind the newest snapshot and blend positions linearly between the last two (`render/interpolate.ts`). The interval is capped at 100 ms so the view catches up quickly after a pause.
 - **Camera presets:**
   - top-down;
   - stadium (low oblique);
@@ -437,8 +443,9 @@ Avoidance is *behaviour*: fielders try not to collide. Collisions are *physics*:
 - **Overlays**, each toggleable:
   - ball arcs;
   - predicted landing rings, with radius scaled by uncertainty;
-  - claim lines from fielder to ball;
-  - comms links (cap the number drawn to avoid clutter);
+  - claim lines from fielder to ball (until the claims protocol exists, these are target lines to the ball each fielder pursues);
+  - target colours: each pursuing fielder takes its ball's colour, so fielders converging on one ball match (when off, pursuing fielders share `--fielder` and idle ones keep `--fielder-idle`);
+  - comms links (cap the number drawn to avoid clutter; currently 1500, or only the selected fielder's links when one is selected);
   - near-miss highlights;
   - collision flashes at contact points, dimmed stunned fielders (with a countdown ring), and fading markers where fielders crashed.
 - **Collision controls.** The UI has a collision mode selector and sliders for the collision parameters.
@@ -500,7 +507,7 @@ Work on the current phase unless asked otherwise. The detailed goals for each ph
 - [x] **Phase 1 — World and oracle.** Ballistics, launcher, the 2D renderer, the Worker, the centralised Hungarian oracle. (Also pulled forward: `timeToReach`, arrive steering, the hash grid, the scenario validator and the metrics panel, because the oracle's fielders need them.)
 - [x] **Phase 2 — Autonomous agents.** Perception, `LocalView`, greedy strategy, separation, near-misses, live gap to the oracle (a shadow oracle run on the same seed in the Worker and in `npm run sim`).
 - [ ] **Phase 3 — Communication and claims.** Message bus, claims protocol, comms sliders, the kill-fielders command, the inspector.
-- [ ] **Phase 4 — 3D view.** three.js scene, instancing, camera rig and presets, overlays, 2D/3D toggle.
+- [x] **Phase 4 — 3D view.** three.js scene, instancing, camera rig and presets, overlays, 2D/3D toggle, snapshot interpolation, collapsible panel for phones. Done ahead of Phase 3, so claim lines are target lines and comms links show range only.
 - [ ] **Phase 5 — Collisions.** Collision detection, simple push-apart response, configurable consequence modes (bounce, penalty, destructive, graded), bumps in `LocalView`, collision metrics, rendering and controls.
 - [ ] **Phase 6 — Experiment harness.** Headless sim and batch scripts, sweeps, CSV/JSON export, comparison report.
 - [ ] **Phase 7 — Advanced coordination and realism.** Auction/CBBA, noisy perception with a Kalman filter, drag and wind, multi-hop relay, heterogeneous fielders, coverage idle policy, ORCA, momentum-based collisions with mass.

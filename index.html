@@ -9,8 +9,13 @@
   <body>
     <div id="app">
       <header id="header">
-        <h1>Swarm Fielding</h1>
-        <div id="controls"></div>
+        <div class="title-row">
+          <h1>Swarm Fielding</h1>
+          <button id="toggle-controls" type="button" aria-controls="controls" aria-expanded="true">
+            Hide controls
+          </button>
+        </div>
+        <div id="controls" class="control-host"></div>
       </header>
       <main id="view"></main>
       <aside id="metrics"></aside>
