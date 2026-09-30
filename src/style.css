@@ -7,6 +7,8 @@
   --accent: #e0a800;
   --oracle: #b0521a;
 
+  --view-bg: #3b4452;
+  --scale-bar: rgba(255, 255, 255, 0.85);
   --field: #5aa860;
   --field-line: rgba(255, 255, 255, 0.3);
   --zone: #c9741c;
@@ -32,6 +34,8 @@
     --accent: #ffd23f;
     --oracle: #f0955a;
 
+    --view-bg: #262c36;
+    --scale-bar: rgba(255, 255, 255, 0.75);
     --field: #2f5e37;
     --field-line: rgba(255, 255, 255, 0.12);
     --zone: #e3a04a;
@@ -96,6 +100,8 @@ body {
   min-height: 0;
   min-width: 0;
   position: relative;
+  /* Darker than the page so white balls stay visible while they fly outside the field. */
+  background: var(--view-bg);
 }
 
 #metrics {

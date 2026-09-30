@@ -12,6 +12,7 @@ import type { RenderFrame, Renderer } from '../types';
 
 const MARGIN_PX = 24;
 const PICK_RADIUS_PX = 12;
+const SCALE_BAR_TARGET_PX = 120;
 
 interface Palette {
   field: string;
@@ -27,6 +28,7 @@ interface Palette {
   selected: string;
   nearMiss: string;
   sensing: string;
+  scaleBar: string;
 }
 
 export class TopDown2D implements Renderer {
@@ -105,6 +107,7 @@ export class TopDown2D implements Renderer {
     this.drawTargetLines(snap, palette);
     this.drawFielders(snap, palette, frame.selectedFielder);
     this.drawBalls(snap, palette);
+    this.drawScaleBar(palette);
   }
 
   private fitView(snap: WorldSnapshot): void {
@@ -290,6 +293,31 @@ export class TopDown2D implements Renderer {
     }
   }
 
+  /** A bar of a round length (1, 2 or 5 × 10^n m) near SCALE_BAR_TARGET_PX, bottom-left. */
+  private drawScaleBar(p: Palette): void {
+    const ctx = this.ctx;
+    const lengthM = niceLength(SCALE_BAR_TARGET_PX / this.scale);
+    const lengthPx = lengthM * this.scale;
+    const x0 = 12;
+    const y = this.height - 12;
+    const tick = 5;
+
+    ctx.strokeStyle = p.scaleBar;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x0, y - tick);
+    ctx.lineTo(x0, y);
+    ctx.lineTo(x0 + lengthPx, y);
+    ctx.lineTo(x0 + lengthPx, y - tick);
+    ctx.stroke();
+
+    ctx.fillStyle = p.scaleBar;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${lengthM} m`, x0 + lengthPx + 6, y - tick / 2);
+  }
+
   private readPalette(): Palette {
     const style = getComputedStyle(this.element);
     const read = (name: string, fallback: string): string =>
@@ -308,8 +336,17 @@ export class TopDown2D implements Renderer {
       selected: read('--accent', '#ffd23f'),
       nearMiss: read('--near-miss', '#e5484d'),
       sensing: read('--sensing', 'rgba(255,255,255,0.5)'),
+      scaleBar: read('--scale-bar', 'rgba(255,255,255,0.85)'),
     };
   }
+}
+
+/** Largest 1, 2 or 5 × 10^n not exceeding `maxM` (m). */
+function niceLength(maxM: number): number {
+  const pow = 10 ** Math.floor(Math.log10(maxM));
+  const mantissa = maxM / pow;
+  const step = mantissa >= 5 ? 5 : mantissa >= 2 ? 2 : 1;
+  return step * pow;
 }
 
 /** A stable, well-spread hue per ball id. */
