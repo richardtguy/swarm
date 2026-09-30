@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, cloneConfig, type SimConfig } from '../../../src/core/config';
-import { senseBalls, senseNeighbours } from '../../../src/core/perception/sensing';
+import type { NeighbourObservation } from '../../../src/core/agents/types';
+import {
+  checkNeighboursUnchanged,
+  observeFielders,
+  senseBalls,
+  senseNeighbours,
+} from '../../../src/core/perception/sensing';
 import { predictLandingAt } from '../../../src/core/physics/ballistics';
 import { Rng } from '../../../src/core/rng';
 import { Simulation } from '../../../src/core/sim';
@@ -110,15 +116,105 @@ describe('senseBalls', () => {
   });
 });
 
+/** This tick's shared fielder observations. */
+function observed(world: Parameters<typeof observeFielders>[0]): (NeighbourObservation | null)[] {
+  const out = new Array<NeighbourObservation | null>(world.fielderCount).fill(null);
+  observeFielders(world, out);
+  return out;
+}
+
+/** Brute-force neighbour ids of fielder `id`, in index order. */
+function bruteNeighbours(
+  world: Parameters<typeof observeFielders>[0],
+  id: number,
+  range: number,
+): number[] {
+  const fx = world.fielderPos[3 * id];
+  const fy = world.fielderPos[3 * id + 1];
+  const ids: number[] = [];
+  for (let j = 0; j < world.fielderCount; j++) {
+    if (j === id || world.fielderAlive[j] === 0) continue;
+    const dx = world.fielderPos[3 * j] - fx;
+    const dy = world.fielderPos[3 * j + 1] - fy;
+    if (dx * dx + dy * dy <= range * range) ids.push(j);
+  }
+  return ids;
+}
+
+describe('observeFielders', () => {
+  it('builds one frozen observation per alive fielder and null for the dead', () => {
+    const { world } = airborne();
+    world.fielderAlive[3] = 0;
+    const obs = observed(world);
+    expect(obs[3]).toBeNull();
+    for (let j = 0; j < world.fielderCount; j++) {
+      if (j === 3) continue;
+      const o = obs[j];
+      expect(o).not.toBeNull();
+      expect(o!.id).toBe(j);
+      expect([...o!.position]).toEqual([...world.fielderPos.subarray(3 * j, 3 * j + 3)]);
+      expect(Object.isFrozen(o)).toBe(true);
+    }
+    // A fresh call never reuses last tick's vectors, so kept observations stay start-of-tick.
+    const again = observed(world);
+    expect(again[0]!.position).not.toBe(obs[0]!.position);
+  });
+});
+
 describe('senseNeighbours', () => {
+  it('shares one observation object per neighbour across views', () => {
+    const { config, world, fielderGrid, fBuf } = airborne((c) => {
+      c.comms.range = 30;
+    });
+    const observations = observed(world);
+    const a = senseNeighbours(world, config, 44, fielderGrid, observations, fBuf);
+    expect(a.length).toBeGreaterThan(0);
+    const b = senseNeighbours(world, config, a[0].id, fielderGrid, observations, fBuf);
+    const shared = a.filter((n) => b.some((m) => m.id === n.id));
+    expect(shared.length).toBeGreaterThan(0);
+    for (const n of shared) {
+      expect(b.find((m) => m.id === n.id)).toBe(n);
+      expect(n).toBe(observations[n.id]);
+    }
+  });
+
+  it('matches brute force for any grid cell size, range and fielder', () => {
+    const { world, fBuf, config } = airborne();
+    world.fielderAlive[12] = 0;
+    const observations = observed(world);
+    for (const range of [0, 3, 12.5, 30, 1000]) {
+      config.comms.range = range;
+      for (const cell of [1, 4, 10, range || 1, 2 * range || 2, 250]) {
+        const grid = new HashGrid(cell, world.fielderCount);
+        grid.build(world.fielderPos, world.fielderCount, world.fielderAlive);
+        for (let id = 0; id < world.fielderCount; id += 7) {
+          if (world.fielderAlive[id] === 0) continue;
+          const got = senseNeighbours(world, config, id, grid, observations, fBuf);
+          expect(got.map((n) => n.id)).toEqual(bruteNeighbours(world, id, range));
+        }
+      }
+    }
+  });
+
+  it('checkNeighboursUnchanged detects writes into shared positions', () => {
+    const { config, world, fielderGrid, fBuf } = airborne((c) => {
+      c.comms.range = 15;
+    });
+    const got = senseNeighbours(world, config, 44, fielderGrid, observed(world), fBuf);
+    expect(() => checkNeighboursUnchanged(world, 44, got)).not.toThrow();
+    got[0].position[1] += 1e-9;
+    expect(() => checkNeighboursUnchanged(world, 44, got)).toThrow(/mutated.*neighbour/);
+  });
+
   it('returns alive fielders within comms range, excluding self, in id order', () => {
     const { config, world, fielderGrid, fBuf } = airborne((c) => {
       c.comms.range = 15;
     });
     world.fielderAlive[45] = 0;
     fielderGrid.build(world.fielderPos, world.fielderCount, world.fielderAlive);
+    const observations = observed(world);
     const id = 44;
-    const got = senseNeighbours(world, config, id, fielderGrid, fBuf);
+    const got = senseNeighbours(world, config, id, fielderGrid, observations, fBuf);
     const fx = world.fielderPos[3 * id];
     const fy = world.fielderPos[3 * id + 1];
     const expected: number[] = [];

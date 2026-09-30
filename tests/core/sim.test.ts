@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { LocalView } from '../../src/core/agents/types';
 import { DEFAULT_CONFIG, cloneConfig, type SimConfig } from '../../src/core/config';
 import { Simulation } from '../../src/core/sim';
 import { BallState } from '../../src/core/state';
+import { greedyStrategy } from '../../src/core/strategies/greedy';
 
 function runHash(config: Readonly<SimConfig> = DEFAULT_CONFIG, ticks = 500): string {
   const sim = new Simulation(config);
@@ -382,5 +384,90 @@ describe('Autonomous fielders (Phase 2)', () => {
     config.sensing.noise = 0.5;
     expect(runHash(config, 200)).toBe(runHash(config, 200));
     expect(runHash(config, 200)).not.toBe(clean);
+  });
+});
+
+describe('Shared neighbour observations', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Greedy config with a salvo in the air. */
+  function greedyConfig(): SimConfig {
+    const config = cloneConfig(DEFAULT_CONFIG);
+    config.launch.pattern = 'salvo';
+    config.strategy.name = 'greedy';
+    return config;
+  }
+
+  it('verifyViews never changes the outcome of a well-behaved run', () => {
+    const plain = new Simulation(greedyConfig());
+    const checked = new Simulation(greedyConfig());
+    checked.verifyViews = true;
+    plain.run(300);
+    checked.run(300);
+    expect(checked.hash()).toBe(plain.hash());
+  });
+
+  it('verifyViews names a strategy that writes into a neighbour position', () => {
+    const decide = greedyStrategy.decide.bind(greedyStrategy);
+    vi.spyOn(greedyStrategy, 'decide').mockImplementation((view: LocalView) => {
+      if (view.self.id === 17 && view.neighbours.length > 0) view.neighbours[0].position[0] += 1;
+      return decide(view);
+    });
+    const sim = new Simulation(greedyConfig());
+    sim.verifyViews = true;
+    expect(() => sim.step()).toThrow(/Fielder 17's strategy mutated/);
+  });
+
+  it('neighbour observations are frozen', () => {
+    const decide = greedyStrategy.decide.bind(greedyStrategy);
+    vi.spyOn(greedyStrategy, 'decide').mockImplementation((view: LocalView) => {
+      view.neighbours[0].id = -1;
+      return decide(view);
+    });
+    const sim = new Simulation(greedyConfig());
+    expect(() => sim.step()).toThrow(TypeError);
+  });
+
+  it('tracks live comms.range changes, kills and resets', () => {
+    const seen: { id: number; neighbours: number[] }[] = [];
+    const decide = greedyStrategy.decide.bind(greedyStrategy);
+    vi.spyOn(greedyStrategy, 'decide').mockImplementation((view: LocalView) => {
+      if (view.self.id % 9 === 0) {
+        seen.push({ id: view.self.id, neighbours: view.neighbours.map((n) => n.id) });
+      }
+      return decide(view);
+    });
+    const sim = new Simulation(greedyConfig());
+    sim.verifyViews = true;
+    /** Step once and compare every recorded view with brute force on start-of-tick state. */
+    const stepAndCheck = (): void => {
+      const pos = sim.world.fielderPos.slice();
+      const alive = sim.world.fielderAlive.slice();
+      const range = sim.config.comms.range;
+      seen.length = 0;
+      sim.step();
+      expect(seen.length).toBeGreaterThan(0);
+      for (const s of seen) {
+        const expected: number[] = [];
+        for (let j = 0; j < alive.length; j++) {
+          if (j === s.id || alive[j] === 0) continue;
+          const dx = pos[3 * j] - pos[3 * s.id];
+          const dy = pos[3 * j + 1] - pos[3 * s.id + 1];
+          if (dx * dx + dy * dy <= range * range) expected.push(j);
+        }
+        expect(s.neighbours).toEqual(expected);
+      }
+    };
+    sim.run(50);
+    for (const range of [12.5, 0, 1000, 3, 30]) {
+      sim.apply({ type: 'setParam', path: 'comms.range', value: range });
+      stepAndCheck();
+    }
+    sim.apply({ type: 'killAgent', id: 10 });
+    stepAndCheck();
+    sim.apply({ type: 'reset' });
+    stepAndCheck();
   });
 });

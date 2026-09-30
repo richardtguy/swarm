@@ -10,6 +10,8 @@ const PUMP_INTERVAL_MS = 16;
 const host = new SimHost((message: WorkerMessage, transfer?: ArrayBuffer[]) => {
   self.postMessage(message, transfer ?? []);
 });
+// Catch strategies that write into shared view data while developing; free in production.
+host.sim.verifyViews = import.meta.env.DEV;
 
 self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   host.handle(event.data);

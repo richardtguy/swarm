@@ -6,7 +6,7 @@
  */
 import { blendAvoidance, separation } from './agents/avoidance';
 import { steerArrive } from './agents/steering';
-import type { AgentMemory, BumpObservation, Decision } from './agents/types';
+import type { AgentMemory, BumpObservation, Decision, NeighbourObservation } from './agents/types';
 import type { Message } from './comms/types';
 import type { SimCommand } from './commands';
 import { DEFAULT_CONFIG, cloneConfig, setParam, type SimConfig } from './config';
@@ -14,7 +14,12 @@ import { hashWorld } from './hash';
 import { EventLog } from './metrics/eventLog';
 import { computeMetrics, type MetricsSummary, type RunCounters } from './metrics/metrics';
 import { buildLocalView } from './perception/localView';
-import { senseBalls, senseNeighbours } from './perception/sensing';
+import {
+  checkNeighboursUnchanged,
+  observeFielders,
+  senseBalls,
+  senseNeighbours,
+} from './perception/sensing';
 import { integrateBallistic, predictLandingAt } from './physics/ballistics';
 import { createLaunchPlan, type LaunchPlan } from './physics/launcher';
 import { Rng, type RngStream } from './rng';
@@ -35,10 +40,19 @@ const IDLE_DECISION: Readonly<Decision> = Object.freeze({
 const EMPTY_INBOX: Message[] = [];
 const NO_BUMPS: BumpObservation[] = [];
 
-/** Cell size (m) of the fielder grid: neighbour, separation, catch and near-miss queries. */
+/** Cell size (m) of the fielder grid: separation, catch and near-miss queries. */
 const FIELDER_GRID_CELL = 4;
 /** Cell size (m) of the flying-ball grid used by perception. */
 const BALL_GRID_CELL = 10;
+
+/**
+ * Cell size (m) of the neighbour grid for a given comms range (m). Cells about as wide as the
+ * query radius keep a comms-range query to a handful of cells; small fielder-grid cells would
+ * make it walk hundreds.
+ */
+function neighbourGridCell(commsRange: number): number {
+  return Math.max(commsRange, FIELDER_GRID_CELL);
+}
 
 /** One run of the fielding scenario. */
 export class Simulation {
@@ -49,6 +63,12 @@ export class Simulation {
   readonly events = new EventLog();
   /** Whether `advance()` steps. Commands `pause`/`resume` toggle this. */
   paused = false;
+  /**
+   * Development and test aid: after each `decide()`, throw if the strategy wrote into the
+   * neighbour observations its view shares with other views. Costs O(neighbours) per fielder
+   * per tick and never changes the outcome of a well-behaved run. Off by default.
+   */
+  verifyViews = false;
 
   private strategy!: AnyStrategy;
   private memories: AgentMemory[] = [];
@@ -67,6 +87,10 @@ export class Simulation {
 
   private perception!: RngStream;
   private fielderGrid!: HashGrid;
+  /** Alive fielders at start of tick, with cells sized for comms-range queries. */
+  private neighbourGrid!: HashGrid;
+  /** This tick's shared neighbour observation per fielder (null when dead). */
+  private fielderObservations: (NeighbourObservation | null)[] = [];
   private ballGrid!: HashGrid;
   private flyingMask!: Uint8Array;
   private fielderBuffer!: Int32Array;
@@ -108,6 +132,8 @@ export class Simulation {
     this.assignment = new Int32Array(n).fill(-1);
     this.replanDue = true;
     this.fielderGrid = new HashGrid(FIELDER_GRID_CELL, n);
+    this.neighbourGrid = new HashGrid(neighbourGridCell(this.config.comms.range), n);
+    this.fielderObservations = new Array<NeighbourObservation | null>(n).fill(null);
     this.ballGrid = new HashGrid(BALL_GRID_CELL, m);
     this.flyingMask = new Uint8Array(m);
     this.fielderBuffer = new Int32Array(Math.max(1, n));
@@ -238,6 +264,13 @@ export class Simulation {
       this.flyingMask[b] = world.ballState[b] === BallState.FLYING ? 1 : 0;
     }
     this.ballGrid.build(world.ballPos, world.ballCount, this.flyingMask);
+    if (isOracle(this.strategy)) return; // oracle fielders never sense neighbours
+    const cell = neighbourGridCell(this.config.comms.range);
+    if (this.neighbourGrid.cellSize !== cell) {
+      this.neighbourGrid = new HashGrid(cell, world.fielderCount); // comms.range changed
+    }
+    this.neighbourGrid.build(world.fielderPos, world.fielderCount, world.fielderAlive);
+    observeFielders(world, this.fielderObservations);
   }
 
   /** Stage 3: put messages due this tick into inboxes. Phase 3. */
@@ -286,7 +319,8 @@ export class Simulation {
         world,
         this.config,
         i,
-        this.fielderGrid,
+        this.neighbourGrid,
+        this.fielderObservations,
         this.fielderBuffer,
       );
       const view = buildLocalView(
@@ -299,7 +333,13 @@ export class Simulation {
         neighbours,
         NO_BUMPS,
       );
-      this.decisions[i] = strategy.decide(view);
+      if (this.verifyViews) {
+        const given = neighbours.slice(); // decide() may reorder its own list
+        this.decisions[i] = strategy.decide(view);
+        checkNeighboursUnchanged(world, i, given);
+      } else {
+        this.decisions[i] = strategy.decide(view);
+      }
     }
   }
 
