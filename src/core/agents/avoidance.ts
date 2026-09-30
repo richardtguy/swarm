@@ -1,7 +1,7 @@
 /**
  * Collision avoidance as behaviour: a separation force that pushes a fielder away from others
  * inside `separationRadius`, blended with steering by the motion stage. Physical contact is
- * handled separately in `physics/collisions.ts` (Phase 5). ORCA is a Phase 7 upgrade.
+ * handled separately in `physics/collisions.ts` (Phase 5). ORCA is a Phase 8 upgrade.
  *
  * The force is a spring plus approach damping. Without damping, the spring and the pull back
  * home form an undamped oscillator: two fielders sharing a home swing between 0.6 m and 2.5 m

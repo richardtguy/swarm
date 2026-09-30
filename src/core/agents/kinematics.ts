@@ -2,7 +2,7 @@
  * Reachability shared by every strategy, so comparisons between them are fair.
  *
  * Fielders are ground-bound for now, so all quantities use horizontal (x, y) components only.
- * Phase 8 extends this to three dimensions for airborne agents.
+ * Phase 9 extends this to three dimensions for airborne agents.
  */
 import type { Vec3 } from '../vec3';
 

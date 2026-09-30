@@ -257,13 +257,37 @@ Model physical contact between fielders, kept separate from avoidance (which is 
 
 *Done when:* greedy fielders visibly collide and suffer for it, coordinated strategies measurably avoid that cost, and all modes are deterministic and tested.
 
-### Phase 6 — Experiment harness
+### Phase 6 — Uncertainty-aware sensing and claims
+Make imperfect sensing degrade the swarm gracefully instead of collapsing it. Today sensing noise is white, unfiltered and identical at every range, so even small values (σ of 0.3) reduce greedy and claims to a few percent catch rate (baseline, seed 42: greedy 0.59 → 0.08, claims 0.78 → 0.06; the oracle is unaffected because it reads the world directly). Target estimates jitter every tick, feasibility flickers, and fielders never commit. Human fielders avoid this by integrating evidence over time, committing coarsely early and making small corrections as the ball nears; see the research notes below.
+
+**Order of work.** Do these as separate, focused commits, in this order:
+
+1. **Honest `uncertainty`.** The reported value (`σ·√(1+t²)` in `perception/sensing.ts`) underestimates the true 1-sigma landing error by about 25–35% at every point in the flight (Monte Carlo at σ = 0.3: formula 0.99 m vs measured 1.33 m at 3.15 s remaining). It ignores that vertical error shifts the arrival time while the ball travels horizontally at about 15 m/s. Derive it properly, and add a Monte Carlo unit test so it cannot drift again. Everything below builds on it.
+2. **Range-dependent noise.** Observation error grows with the 3D distance from fielder to ball, σ(d) = `noise` × d / `noiseRefRange`, applied to both position and velocity (angular error scales with range). Estimates sharpen as a fielder closes in, and nearer fielders are better informed. The perception stream must still draw the same number of values in the same order. Reported `uncertainty` must use the same σ(d).
+3. **Claim when likely, not certain.** Feasibility becomes a probability: `P(catch) ≈ Φ((slack − feasibilityMargin) / σ_total)`, where `σ_total` combines the landing-point uncertainty converted to time (≈ σ_landing / `maxSpeed`) and the arrival-time uncertainty. At σ = 0 this is a step function, so noise-free runs stay bit-identical. Applies to greedy and claims alike, so claims still equals greedy with no messages.
+4. **Claims weigh certainty as well as time.** See the decisions below.
+5. **Kalman-filtered landing prediction.** Each fielder filters its observations of a ball over time using a ballistic model (known gravity), instead of acting on raw per-tick readings. Per-fielder state lives in `view.memory`. Do this last and measure first: range-dependent noise shrinks the jitter as fielders close in, so the filter may matter less than expected. The landing *set point* jittering (fielders hovering and braking at the target) is a separate problem from ball-choice flicker; steps 1–4 fix the latter, and this step addresses the former.
+
+**Decisions made:**
+
+- **Release rule (hysteresis).** A fielder acquires a ball at `P ≥ claimConfidence` and keeps it until `P < releaseConfidence`, which is lower. A single threshold would flicker, because P fluctuates tick to tick with noisy observations. Both are new parameters (defaults to be chosen, with `claimConfidence` around 0.5).
+- **Message contract.** No change to `Message`. A `CLAIM`'s `eta` field carries a risk-adjusted arrival time, `eta + z·σ_eta`, which is still an absolute sim time. Earlier and more certain both win, and the tie-group conflict rule and `claimHolder` are unchanged. Document the new meaning of `eta` ("pessimistic arrival") in CLAUDE.md section 9 when implementing. An explicit confidence field in the message was considered and rejected for now.
+- **Default noise.** `sensing.noise` stays 0 by default, in `DEFAULT_CONFIG`, the scenarios and the UI. The slider's useful range will shift once noise is range-dependent, so revisit its `max` and step.
+
+**Still to decide during implementation:** the defaults for `claimConfidence`, `releaseConfidence`, `noiseRefRange` and the risk multiplier `z`.
+
+**Research notes** (from memory, to be verified before citing): fly-ball catching is largely explained by feedback on visual variables, not prediction of the landing point. Candidates are optical acceleration cancellation (Chapman 1968; Michaels & Oudejans 1992), the linear optical trajectory (McBeath, Shaffer & Kaiser 1995) and the gaze heuristic (McLeod & Dienes 1993, 1996). Prediction contributes through a strong internal gravity prior (McIntyre et al. 2001; Zago et al. 2009), and real fielders use lateral information best and depth worst early in flight. Proportional navigation in missile guidance (and, reportedly, in falcon attacks) is the engineering analogue of the gaze heuristic. Real perceptual noise is temporally correlated and range-dependent, so it is harder to filter than the white noise used here; a correlated-noise model is a possible later extension.
+
+*Done when:* catch rate falls smoothly with sensing noise for greedy and claims rather than dropping off a cliff, `uncertainty` matches a Monte Carlo test, and the noise-free goldens are unchanged.
+
+### Phase 7 — Experiment harness
 Add headless single runs and batch parameter sweeps across seeds, with CSV and JSON export and a summary comparison report.
 *Done when:* one command produces a catch-rate-versus-packet-loss curve for every strategy.
 
-### Phase 7 — Advanced coordination and realism
+### Phase 8 — Future directions (placeholder)
+Not a committed plan. These are candidate directions, to be split into numbered phases with their own goals when they are picked up:
+
 - The auction/CBBA strategy.
-- Noisy perception with Kalman-filtered landing prediction.
 - Drag and wind.
 - Multi-hop message relay.
 - Heterogeneous fielders (speed and sensing).
@@ -271,9 +295,7 @@ Add headless single runs and batch parameter sweeps across seeds, with CSV and J
 - ORCA collision avoidance.
 - Momentum-based collision response with per-fielder mass.
 
-*Done when:* each addition has tests, a scenario, and a documented effect on metrics.
-
-### Phase 8 — Toward real drones
+### Phase 9 — Toward real drones
 - Airborne fielders with quadrotor-like dynamics.
 - Mid-air intercept rather than ground catches.
 - Energy and endurance limits.
@@ -290,9 +312,10 @@ Add headless single runs and batch parameter sweeps across seeds, with CSV and J
 - [x] Phase 3 — Communication and claims
 - [x] Phase 4 — 3D visualisation
 - [ ] Phase 5 — Collisions
-- [ ] Phase 6 — Experiment harness
-- [ ] Phase 7 — Advanced coordination and realism
-- [ ] Phase 8 — Toward real drones
+- [ ] Phase 6 — Uncertainty-aware sensing and claims
+- [ ] Phase 7 — Experiment harness
+- [ ] Phase 8 — Future directions (placeholder)
+- [ ] Phase 9 — Toward real drones
 
 ---
 

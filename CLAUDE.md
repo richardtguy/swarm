@@ -367,13 +367,13 @@ Avoidance is *behaviour*: fielders try not to collide. Collisions are *physics*:
 - **Detection.**
   - The broad phase uses `spatial/hashGrid.ts`. The narrow phase is a sphere-overlap test.
   - Only alive fielders collide. Crashed fielders are removed from the field and are not obstacles.
-  - Discrete detection is sufficient at current speeds. Swept (continuous) detection is a Phase 8 upgrade.
+  - Discrete detection is sufficient at current speeds. Swept (continuous) detection is a Phase 9 upgrade.
 - **Response in the first version.**
   - There is no mass. Overlapping pairs are pushed apart equally along the contact normal.
   - The normal component of relative velocity is reflected, scaled by `restitution`.
   - The solver runs `collisionIterations` relaxation passes (default 4) to settle clumps.
   - Pairs are processed in a fixed order (i < j, sorted by i then j) so results are deterministic.
-  - Momentum-based impulses with per-fielder mass are a Phase 7 upgrade. Keep the response function swappable.
+  - Momentum-based impulses with per-fielder mass are a Phase 8 upgrade. Keep the response function swappable.
 - **Consequence modes** (`collisions.mode`):
 
 | Mode | Effect |
@@ -524,9 +524,10 @@ Work on the current phase unless asked otherwise. The detailed goals for each ph
 - [x] **Phase 3 — Communication and claims.** Message bus, claims protocol, comms sliders, the kill-fielders command, the inspector. Claims meets the "recovers most of the gap" bar on streaming launches but not on simultaneous salvos (see *L2 — Claims*).
 - [x] **Phase 4 — 3D view.** three.js scene, instancing, camera rig and presets, overlays, 2D/3D toggle, snapshot interpolation, collapsible panel for phones. Done ahead of Phase 3, so claim lines are target lines and comms links show range only.
 - [ ] **Phase 5 — Collisions.** Collision detection, simple push-apart response, configurable consequence modes (bounce, penalty, destructive, graded), bumps in `LocalView`, collision metrics, rendering and controls.
-- [ ] **Phase 6 — Experiment harness.** Headless sim and batch scripts, sweeps, CSV/JSON export, comparison report.
-- [ ] **Phase 7 — Advanced coordination and realism.** Auction/CBBA, noisy perception with a Kalman filter, drag and wind, multi-hop relay, heterogeneous fielders, coverage idle policy, ORCA, momentum-based collisions with mass.
-- [ ] **Phase 8 — Drones.** Airborne fielders, quadrotor-like dynamics, mid-air intercept, swept collision detection, energy/endurance limits.
+- [ ] **Phase 6 — Uncertainty-aware sensing and claims.** Honest `uncertainty` validated by a Monte Carlo test, range-dependent sensing noise, a probabilistic feasibility rule with acquire/release hysteresis, risk-adjusted claim ETAs, Kalman-filtered landing prediction. Noise-free runs stay bit-identical. Decisions and order of work are in `README.md` (Phase 6): fix `uncertainty` first; acquire/release confidence hysteresis; risk-adjusted `eta` in the existing `CLAIM` field (no `Message` change); `sensing.noise` default stays 0.
+- [ ] **Phase 7 — Experiment harness.** Headless sim and batch scripts, sweeps, CSV/JSON export, comparison report.
+- [ ] **Phase 8 — Future directions (placeholder).** Not a committed plan: auction/CBBA, drag and wind, multi-hop relay, heterogeneous fielders, coverage idle policy, ORCA, momentum-based collisions with mass. Split into numbered phases when picked up.
+- [ ] **Phase 9 — Drones.** Airborne fielders, quadrotor-like dynamics, mid-air intercept, swept collision detection, energy/endurance limits.
 
 **Current phase:** Phase 5.
 

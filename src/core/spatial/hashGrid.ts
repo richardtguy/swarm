@@ -2,7 +2,7 @@
  * Uniform hash grid over the ground plane for neighbour and range queries.
  *
  * Entries are bucketed by their (x, y) cell; z is ignored while fielders are ground-bound
- * (a 3D grid is a Phase 8 upgrade). The grid is rebuilt each tick from a struct-of-arrays
+ * (a 3D grid is a Phase 9 upgrade). The grid is rebuilt each tick from a struct-of-arrays
  * position buffer and allocates nothing after construction. Query results are not in index
  * order: callers that need determinism must select by an explicit key (e.g. distance, then id).
  */

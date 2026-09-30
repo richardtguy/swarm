@@ -1,7 +1,7 @@
 /**
  * Ball flight without drag: closed-form integration and landing prediction.
  *
- * Gravity acts along -z. Drag and wind (Phase 7) will add numerical integrators alongside
+ * Gravity acts along -z. Drag and wind (Phase 8) will add numerical integrators alongside
  * these analytic forms; the landing predictor will then become an estimate rather than exact.
  */
 import type { Vec3 } from '../vec3';

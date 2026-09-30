@@ -21,7 +21,7 @@ export type MessageBody =
   | { type: 'CAUGHT'; ballId: number }
   /** Liveness signal. */
   | { type: 'HEARTBEAT' }
-  /** L3 auction bid (Phase 7). */
+  /** L3 auction bid (Phase 8). */
   | { type: 'BID'; ballId: number; score: number; round: number };
 
 /** A delivered message as it appears in an inbox. */
