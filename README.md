@@ -161,9 +161,10 @@ Each file holds one concept, and tests sit in a matching path under `tests/`. Th
 - **Inspector.** Click any fielder to see its local view, its claims table and its recent messages.
 - **Live controls:**
   - a strategy selector;
-  - sliders for fielder speed, comms range, latency, packet loss, and launch rate and pattern;
+  - sliders for fielder speed and acceleration, comms range, latency, packet loss, and launch rate and pattern;
   - a collision mode selector;
   - a "kill fielders" button;
+  - fielder and ball counts (restart the run);
   - pause, step, reset, and seed selection.
 
 ---
@@ -287,7 +288,7 @@ Add headless single runs and batch parameter sweeps across seeds, with CSV and J
 - [x] Phase 1 — World and benchmark
 - [x] Phase 2 — Autonomous fielders
 - [ ] Phase 3 — Communication and claims
-- [ ] Phase 4 — 3D visualisation
+- [x] Phase 4 — 3D visualisation
 - [ ] Phase 5 — Collisions
 - [ ] Phase 6 — Experiment harness
 - [ ] Phase 7 — Advanced coordination and realism

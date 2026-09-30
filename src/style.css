@@ -7,6 +7,8 @@
   --accent: #e0a800;
   --oracle: #b0521a;
 
+  --view-bg: #3b4452;
+  --scale-bar: rgba(255, 255, 255, 0.85);
   --field: #5aa860;
   --field-line: rgba(255, 255, 255, 0.3);
   --zone: #c9741c;
@@ -19,6 +21,8 @@
   --target-line: rgba(20, 40, 90, 0.45);
   --near-miss: #e5484d;
   --sensing: rgba(255, 255, 255, 0.5);
+  --arc: rgba(255, 255, 255, 0.45);
+  --comms-link: rgba(140, 210, 255, 0.35);
   color-scheme: light dark;
 }
 
@@ -32,6 +36,8 @@
     --accent: #ffd23f;
     --oracle: #f0955a;
 
+    --view-bg: #262c36;
+    --scale-bar: rgba(255, 255, 255, 0.75);
     --field: #2f5e37;
     --field-line: rgba(255, 255, 255, 0.12);
     --zone: #e3a04a;
@@ -42,6 +48,8 @@
     --shadow: rgba(0, 0, 0, 0.6);
     --landing: rgba(255, 255, 255, 0.6);
     --target-line: rgba(200, 220, 255, 0.35);
+    --arc: rgba(255, 255, 255, 0.35);
+    --comms-link: rgba(120, 190, 255, 0.3);
   }
 }
 
@@ -91,11 +99,29 @@ body {
   margin: 0;
 }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.control-host {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.control-host[hidden] {
+  display: none;
+}
+
 #view {
   grid-area: view;
   min-height: 0;
   min-width: 0;
   position: relative;
+  /* Darker than the page so white balls stay visible while they fly outside the field. */
+  background: var(--view-bg);
 }
 
 #metrics {
@@ -119,13 +145,89 @@ body {
     border-left: none;
     border-top: 1px solid var(--border);
   }
+  #header {
+    padding: 0.5rem 0.75rem;
+  }
+  .slider input[type='range'] {
+    width: 6rem;
+  }
+  button,
+  select {
+    min-height: 2.25rem; /* comfortable touch targets */
+  }
 }
 
-canvas.topdown2d {
+canvas.topdown2d,
+canvas.scene3d {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+canvas.topdown2d {
   cursor: crosshair;
+}
+
+canvas.scene3d {
+  cursor: grab;
+  /* OrbitControls handles touch itself; stop the page scrolling or zooming underneath. */
+  touch-action: none;
+}
+
+canvas.scene3d:active {
+  cursor: grabbing;
+}
+
+.segmented {
+  display: inline-flex;
+}
+
+.segmented button {
+  border-radius: 0;
+}
+
+.segmented button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.segmented button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.segmented button + button {
+  margin-left: -1px;
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1c1c1a;
+}
+
+.segmented.disabled {
+  opacity: 0.5;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+.checkbox {
+  gap: 0.25rem;
+  color: var(--fg);
+}
+
+.checkbox:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.hint {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.hint[hidden] {
+  display: none;
 }
 
 .controls {

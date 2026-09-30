@@ -8,10 +8,13 @@ import { predictLandingAt } from '../../core/physics/ballistics';
 import type { WorldSnapshot } from '../../core/snapshot';
 import { BallState } from '../../core/state';
 import { vec3 } from '../../core/vec3';
+import { targetColour } from '../colours';
+import { landingRingRadius } from '../landing';
 import type { RenderFrame, Renderer } from '../types';
 
 const MARGIN_PX = 24;
 const PICK_RADIUS_PX = 12;
+const SCALE_BAR_TARGET_PX = 120;
 
 interface Palette {
   field: string;
@@ -27,6 +30,7 @@ interface Palette {
   selected: string;
   nearMiss: string;
   sensing: string;
+  scaleBar: string;
 }
 
 export class TopDown2D implements Renderer {
@@ -100,11 +104,19 @@ export class TopDown2D implements Renderer {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.width, this.height);
 
+    const { overlays } = frame;
     this.drawField(snap, palette);
     this.drawZones(snap, palette);
-    this.drawTargetLines(snap, palette);
-    this.drawFielders(snap, palette, frame.selectedFielder);
-    this.drawBalls(snap, palette);
+    if (overlays.targetLines) this.drawTargetLines(snap, palette);
+    this.drawFielders(
+      snap,
+      palette,
+      frame.selectedFielder,
+      overlays.nearMisses,
+      overlays.targetColours,
+    );
+    this.drawBalls(snap, palette, overlays.landingRings);
+    this.drawScaleBar(palette);
   }
 
   private fitView(snap: WorldSnapshot): void {
@@ -199,7 +211,13 @@ export class TopDown2D implements Renderer {
     ctx.stroke();
   }
 
-  private drawFielders(snap: WorldSnapshot, p: Palette, selected: number | null): void {
+  private drawFielders(
+    snap: WorldSnapshot,
+    p: Palette,
+    selected: number | null,
+    nearMisses: boolean,
+    targetColours: boolean,
+  ): void {
     const ctx = this.ctx;
     const r = Math.max(3, snap.config.collisions.bodyRadius * this.scale);
     for (let i = 0; i < snap.fielderCount; i++) {
@@ -218,11 +236,11 @@ export class TopDown2D implements Renderer {
       }
       // Fielders chasing the same ball share a colour, so clumping is visible at a glance.
       const target = snap.fielderTargetBall[i];
-      ctx.fillStyle = target >= 0 ? targetColour(target) : p.fielderIdle;
+      ctx.fillStyle = target < 0 ? p.fielderIdle : targetColours ? targetColour(target) : p.fielder;
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, 2 * Math.PI);
       ctx.fill();
-      if (snap.fielderNearMiss[i] === 1) {
+      if (nearMisses && snap.fielderNearMiss[i] === 1) {
         ctx.strokeStyle = p.nearMiss;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -250,10 +268,10 @@ export class TopDown2D implements Renderer {
     }
   }
 
-  private drawBalls(snap: WorldSnapshot, p: Palette): void {
+  private drawBalls(snap: WorldSnapshot, p: Palette, landingRings: boolean): void {
     const ctx = this.ctx;
     const h = snap.config.catch.height;
-    const ringR = Math.max(4, snap.config.catch.radius * this.scale);
+    const { radius } = snap.config.catch;
     for (let b = 0; b < snap.ballCount; b++) {
       if (snap.ballState[b] !== BallState.FLYING) continue;
       const x = snap.ballPos[3 * b];
@@ -262,9 +280,15 @@ export class TopDown2D implements Renderer {
       const cx = this.toCanvasX(x);
       const cy = this.toCanvasY(y);
 
-      // Predicted landing ring.
-      const t = predictLandingAt(this.landing, snap.ballPos, snap.ballVel, b, h);
+      // Predicted landing ring, widened by landing uncertainty as in the 3D view.
+      const t = landingRings
+        ? predictLandingAt(this.landing, snap.ballPos, snap.ballVel, b, h)
+        : Number.NaN;
       if (!Number.isNaN(t)) {
+        const ringR = Math.max(
+          4,
+          landingRingRadius(radius, snap.config.sensing.noise, t) * this.scale,
+        );
         ctx.strokeStyle = p.landing;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -290,6 +314,31 @@ export class TopDown2D implements Renderer {
     }
   }
 
+  /** A bar of a round length (1, 2 or 5 × 10^n m) near SCALE_BAR_TARGET_PX, bottom-left. */
+  private drawScaleBar(p: Palette): void {
+    const ctx = this.ctx;
+    const lengthM = niceLength(SCALE_BAR_TARGET_PX / this.scale);
+    const lengthPx = lengthM * this.scale;
+    const x0 = 12;
+    const y = this.height - 12;
+    const tick = 5;
+
+    ctx.strokeStyle = p.scaleBar;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x0, y - tick);
+    ctx.lineTo(x0, y);
+    ctx.lineTo(x0 + lengthPx, y);
+    ctx.lineTo(x0 + lengthPx, y - tick);
+    ctx.stroke();
+
+    ctx.fillStyle = p.scaleBar;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${lengthM} m`, x0 + lengthPx + 6, y - tick / 2);
+  }
+
   private readPalette(): Palette {
     const style = getComputedStyle(this.element);
     const read = (name: string, fallback: string): string =>
@@ -308,11 +357,15 @@ export class TopDown2D implements Renderer {
       selected: read('--accent', '#ffd23f'),
       nearMiss: read('--near-miss', '#e5484d'),
       sensing: read('--sensing', 'rgba(255,255,255,0.5)'),
+      scaleBar: read('--scale-bar', 'rgba(255,255,255,0.85)'),
     };
   }
 }
 
-/** A stable, well-spread hue per ball id. */
-function targetColour(ballId: number): string {
-  return `hsl(${(ballId * 47) % 360} 75% 55%)`;
+/** Largest 1, 2 or 5 × 10^n not exceeding `maxM` (m). */
+function niceLength(maxM: number): number {
+  const pow = 10 ** Math.floor(Math.log10(maxM));
+  const mantissa = maxM / pow;
+  const step = mantissa >= 5 ? 5 : mantissa >= 2 ? 2 : 1;
+  return step * pow;
 }
