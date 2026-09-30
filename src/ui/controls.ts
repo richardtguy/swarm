@@ -41,6 +41,7 @@ interface SliderSpec {
 
 const SLIDERS: SliderSpec[] = [
   { path: 'fielders.maxSpeed', label: 'Max speed', min: 1, max: 15, step: 0.5, unit: 'm/s' },
+  { path: 'fielders.maxAccel', label: 'Max accel', min: 0.5, max: 12, step: 0.5, unit: 'm/s²' },
   { path: 'sensing.range', label: 'Sensing range', min: 5, max: 150, step: 5, unit: 'm' },
   { path: 'sensing.noise', label: 'Sensing noise', min: 0, max: 3, step: 0.1, unit: 'm' },
   { path: 'strategy.separationRadius', label: 'Separation', min: 0, max: 6, step: 0.5, unit: 'm' },

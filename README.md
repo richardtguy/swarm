@@ -161,7 +161,7 @@ Each file holds one concept, and tests sit in a matching path under `tests/`. Th
 - **Inspector.** Click any fielder to see its local view, its claims table and its recent messages.
 - **Live controls:**
   - a strategy selector;
-  - sliders for fielder speed, comms range, latency, packet loss, and launch rate and pattern;
+  - sliders for fielder speed and acceleration, comms range, latency, packet loss, and launch rate and pattern;
   - a collision mode selector;
   - a "kill fielders" button;
   - fielder and ball counts (restart the run);
