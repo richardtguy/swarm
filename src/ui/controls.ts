@@ -16,6 +16,8 @@ export interface ControlsHandlers {
   onCommand(command: SimCommand): void;
   /** Change playback speed (sim seconds per wall-clock second). */
   onTimeScale(scale: number): void;
+  /** Kill this fraction (0–1) of the alive fielders, chosen at random. */
+  onKillFraction(fraction: number): void;
 }
 
 const SCENARIOS: Record<string, unknown> = {
@@ -46,6 +48,19 @@ const SLIDERS: SliderSpec[] = [
   { path: 'sensing.noise', label: 'Sensing noise', min: 0, max: 3, step: 0.1, unit: 'm' },
   { path: 'strategy.separationRadius', label: 'Separation', min: 0, max: 6, step: 0.5, unit: 'm' },
 ];
+
+/** Comms and claims parameters. The message bus and strategies read these every tick. */
+const COMMS_SLIDERS: SliderSpec[] = [
+  { path: 'comms.range', label: 'Comms range', min: 0, max: 100, step: 5, unit: 'm' },
+  { path: 'comms.latency', label: 'Latency', min: 0, max: 1, step: 0.02, unit: 's' },
+  { path: 'comms.lossProb', label: 'Packet loss', min: 0, max: 1, step: 0.05, unit: '' },
+  { path: 'comms.bandwidth', label: 'Bandwidth', min: 0, max: 16, step: 1, unit: 'msg/tick' },
+  { path: 'strategy.claimMargin', label: 'Claim margin', min: 0, max: 1, step: 0.05, unit: 's' },
+  { path: 'strategy.claimTtl', label: 'Claim TTL', min: 5, max: 200, step: 5, unit: 'ticks' },
+];
+
+/** Share of alive fielders the "Kill 10%" button removes. */
+const KILL_FRACTION = 0.1;
 
 export class Controls {
   readonly element: HTMLElement;
@@ -83,6 +98,11 @@ export class Controls {
     this.pauseButton = el('button', { type: 'button', text: 'Pause' });
     const stepButton = el('button', { type: 'button', text: 'Step' });
     const resetButton = el('button', { type: 'button', text: 'Reset' });
+    const killButton = el('button', {
+      type: 'button',
+      text: 'Kill 10%',
+      title: 'Kill a random tenth of the alive fielders',
+    });
 
     const runRow = el('div', { class: 'controls' }, [
       labelled('Scenario', this.scenarioSelect),
@@ -94,10 +114,14 @@ export class Controls {
       this.pauseButton,
       stepButton,
       resetButton,
+      killButton,
     ]);
     const sliderRow = el('div', { class: 'controls sliders' });
     for (const spec of SLIDERS) sliderRow.append(this.buildSlider(spec, handlers));
-    this.element = el('div', { class: 'control-panel' }, [runRow, sliderRow]);
+    const commsRow = el('div', { class: 'controls sliders' });
+    for (const spec of COMMS_SLIDERS) commsRow.append(this.buildSlider(spec, handlers));
+    this.element = el('div', { class: 'control-panel' }, [runRow, sliderRow, commsRow]);
+    killButton.addEventListener('click', () => handlers.onKillFraction(KILL_FRACTION));
 
     const restart = (): void => handlers.onCommand({ type: 'init', config: this.buildConfig() });
     this.scenarioSelect.addEventListener('change', () => {
@@ -128,10 +152,10 @@ export class Controls {
       step: String(spec.step),
       value: String(initial),
     });
-    const value = el('span', { class: 'value', text: `${initial} ${spec.unit}` });
+    const value = el('span', { class: 'value', text: `${initial} ${spec.unit}`.trim() });
     input.addEventListener('input', () => {
       const v = Number(input.value);
-      value.textContent = `${v} ${spec.unit}`;
+      value.textContent = `${v} ${spec.unit}`.trim();
       handlers.onCommand({ type: 'setParam', path: spec.path, value: v });
     });
     this.sliders.set(spec.path, input);

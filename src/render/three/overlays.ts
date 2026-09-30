@@ -17,6 +17,7 @@ import { HashGrid } from '../../core/spatial/hashGrid';
 import { BallState } from '../../core/state';
 import { vec3 } from '../../core/vec3';
 import { landingRingRadius } from '../landing';
+import { pursuerCounts } from '../pursuit';
 import type { OverlaySettings } from '../types';
 import { writeThree } from './coords';
 import type { Paint, Palette3D } from './palette';
@@ -128,6 +129,7 @@ export class Overlays {
   private readonly arcs = new LineLayer();
   private readonly rings = new LineLayer();
   private readonly targets = new LineLayer();
+  private readonly conflicts = new LineLayer();
   private readonly comms = new LineLayer();
   private readonly nearMiss = new LineLayer();
   private readonly selected = new LineLayer();
@@ -145,6 +147,7 @@ export class Overlays {
     this.arcs.paint(p.arc);
     this.rings.paint(p.landing);
     this.targets.paint(p.targetLine);
+    this.conflicts.paint(p.nearMiss);
     this.comms.paint(p.commsLink);
     this.nearMiss.paint(p.nearMiss);
     this.selected.paint(p.selected);
@@ -189,10 +192,14 @@ export class Overlays {
     this.arcs.commit(nArcs);
     this.rings.commit(nRings);
 
-    // Target lines: fielder → landing point of the pursued ball.
+    // Target lines: fielder to the landing point of the pursued ball. Balls chased by several
+    // fielders go on the conflict layer, drawn in the near-miss colour.
     let nTargets = 0;
+    let nConflicts = 0;
     if (settings.targetLines) {
+      const counts = pursuerCounts(snap);
       const buf = this.targets.reserve(snap.fielderCount * 2);
+      const conflictBuf = this.conflicts.reserve(snap.fielderCount * 2);
       for (let i = 0; i < snap.fielderCount; i++) {
         const b = snap.fielderTargetBall[i];
         if (b < 0 || snap.fielderAlive[i] === 0 || snap.ballState[b] !== BallState.FLYING) {
@@ -202,11 +209,18 @@ export class Overlays {
           continue;
         }
         const o = 3 * i;
-        writeThree(buf, nTargets++, snap.fielderPos[o], snap.fielderPos[o + 1], GROUND_Z);
-        writeThree(buf, nTargets++, this.landing[0], this.landing[1], GROUND_Z);
+        const [x, y] = [snap.fielderPos[o], snap.fielderPos[o + 1]];
+        if (counts[b] > 1) {
+          writeThree(conflictBuf, nConflicts++, x, y, GROUND_Z + 0.02);
+          writeThree(conflictBuf, nConflicts++, this.landing[0], this.landing[1], GROUND_Z + 0.02);
+        } else {
+          writeThree(buf, nTargets++, x, y, GROUND_Z);
+          writeThree(buf, nTargets++, this.landing[0], this.landing[1], GROUND_Z);
+        }
       }
     }
     this.targets.commit(nTargets);
+    this.conflicts.commit(nConflicts);
 
     this.comms.commit(settings.commsLinks ? this.writeComms(snap, selected) : 0);
 
@@ -284,6 +298,7 @@ export class Overlays {
       this.arcs,
       this.rings,
       this.targets,
+      this.conflicts,
       this.comms,
       this.nearMiss,
       this.selected,

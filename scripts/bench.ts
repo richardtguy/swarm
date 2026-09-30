@@ -21,6 +21,8 @@ const CASES: Case[] = [
   { name: 'oracle 500 v 500', strategy: 'centralised', fielders: 500, balls: 500, ticks: 3000 },
   { name: 'greedy 100 v 100', strategy: 'greedy', fielders: 100, balls: 100, ticks: 3000 },
   { name: 'greedy 500 v 500', strategy: 'greedy', fielders: 500, balls: 500, ticks: 3000 },
+  { name: 'claims 100 v 100', strategy: 'claims', fielders: 100, balls: 100, ticks: 3000 },
+  { name: 'claims 500 v 500', strategy: 'claims', fielders: 500, balls: 500, ticks: 3000 },
 ];
 
 function runCase(c: Case): void {

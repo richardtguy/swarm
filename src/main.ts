@@ -8,12 +8,15 @@ import { Scene3D } from './render/three/scene3d';
 import { TopDown2D } from './render/topdown2d/topDown2D';
 import type { OverlaySettings, Renderer } from './render/types';
 import { Controls } from './ui/controls';
+import { Inspector } from './ui/inspector';
 import { MetricsPanel } from './ui/metricsPanel';
 import { ViewControls, loadViewPrefs, type ViewMode } from './ui/viewControls';
 import type { WorkerCommand, WorkerMessage } from './worker/protocol';
 
 /** A pointer that moves further than this (px) between down and up is a drag, not a click. */
 const CLICK_SLOP_PX = 6;
+/** Minimum interval (ms) between inspector redraws; tables need not refresh at 60 Hz. */
+const INSPECTOR_REFRESH_MS = 200;
 
 function byId(id: string): HTMLElement {
   const node = document.getElementById(id);
@@ -29,7 +32,28 @@ let overlays: Readonly<OverlaySettings> = prefs.overlays;
 let preset: CameraPreset = prefs.preset;
 let selectedFielder: number | null = null;
 let fielderCount = 0;
+let fielderAlive: Uint8Array = new Uint8Array(0);
+let inspectorDrawnAt = 0;
 const interpolator = new SnapshotInterpolator();
+
+/** Select a fielder (or none) and have the Worker report its view for the inspector. */
+function select(id: number | null): void {
+  selectedFielder = id;
+  send({ type: 'inspect', fielderId: id });
+  inspectorDrawnAt = 0;
+}
+
+/** Kill `fraction` of the alive fielders, chosen at random. The ids are recorded as KILL events. */
+function killFraction(fraction: number): void {
+  const alive: number[] = [];
+  for (let i = 0; i < fielderAlive.length; i++) if (fielderAlive[i] === 1) alive.push(i);
+  const count = Math.min(alive.length, Math.ceil(alive.length * fraction));
+  for (let k = 0; k < count; k++) {
+    const pick = k + Math.floor(Math.random() * (alive.length - k));
+    [alive[k], alive[pick]] = [alive[pick], alive[k]];
+    send({ type: 'command', command: { type: 'killAgent', id: alive[k] } });
+  }
+}
 
 const controls = new Controls({
   onCommand: (command) => {
@@ -37,9 +61,14 @@ const controls = new Controls({
     send({ type: 'command', command });
   },
   onTimeScale: (timeScale) => send({ type: 'setTimeScale', timeScale }),
+  onKillFraction: killFraction,
 });
 const metrics = new MetricsPanel({
   onRequestHash: () => send({ type: 'requestHash' }),
+});
+const inspector = new Inspector({
+  onKill: (id) => send({ type: 'command', command: { type: 'killAgent', id } }),
+  onClose: () => select(null),
 });
 const viewControls = new ViewControls(prefs, {
   onMode: (mode) => mount(mode),
@@ -54,7 +83,7 @@ const viewControls = new ViewControls(prefs, {
 
 const controlsHost = byId('controls');
 controlsHost.append(controls.element, viewControls.element);
-byId('metrics').append(metrics.element);
+byId('metrics').append(inspector.element, metrics.element);
 const view = byId('view');
 
 // Collapsible control panel: collapsed on narrow screens, following the breakpoint as the window
@@ -113,7 +142,7 @@ function listenForPicks(target: Renderer): void {
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     down = null;
     if (moved > CLICK_SLOP_PX) return;
-    selectedFielder = target.pick(e.clientX, e.clientY);
+    select(target.pick(e.clientX, e.clientY));
   });
 }
 
@@ -126,9 +155,17 @@ worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
     case 'frame':
       interpolator.push(message.snapshot, performance.now());
       fielderCount = message.snapshot.fielderCount;
-      if (selectedFielder !== null && selectedFielder >= fielderCount) selectedFielder = null;
+      fielderAlive = message.snapshot.fielderAlive;
+      if (selectedFielder !== null && selectedFielder >= fielderCount) select(null);
       controls.setPaused(message.paused);
       metrics.update(message.metrics, message.strategy, message.finished, message.reference);
+      if (performance.now() - inspectorDrawnAt >= INSPECTOR_REFRESH_MS) {
+        // Right after a click the frame may still describe the previously inspected fielder.
+        const inspection = message.inspection;
+        const current = inspection !== null && inspection.id === selectedFielder;
+        if (selectedFielder === null || current) inspector.update(current ? inspection : null);
+        inspectorDrawnAt = performance.now();
+      }
       break;
     case 'hash':
       metrics.showHash(message.tick, message.hash);

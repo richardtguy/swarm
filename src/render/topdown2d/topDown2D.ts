@@ -10,6 +10,7 @@ import { BallState } from '../../core/state';
 import { vec3 } from '../../core/vec3';
 import { targetColour } from '../colours';
 import { landingRingRadius } from '../landing';
+import { pursuerCounts } from '../pursuit';
 import type { RenderFrame, Renderer } from '../types';
 
 const MARGIN_PX = 24;
@@ -191,24 +192,31 @@ export class TopDown2D implements Renderer {
     ctx.setLineDash([]);
   }
 
+  /** Lines from fielders to their targets; balls chased by several fielders in red. */
   private drawTargetLines(snap: WorldSnapshot, p: Palette): void {
     const ctx = this.ctx;
     const h = snap.config.catch.height;
-    ctx.strokeStyle = p.targetLine;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 0; i < snap.fielderCount; i++) {
-      const b = snap.fielderTargetBall[i];
-      if (b < 0 || snap.ballState[b] !== BallState.FLYING) continue;
-      const t = predictLandingAt(this.landing, snap.ballPos, snap.ballVel, b, h);
-      if (Number.isNaN(t)) continue;
-      ctx.moveTo(
-        this.toCanvasX(snap.fielderPos[3 * i]),
-        this.toCanvasY(snap.fielderPos[3 * i + 1]),
-      );
-      ctx.lineTo(this.toCanvasX(this.landing[0]), this.toCanvasY(this.landing[1]));
+    const counts = pursuerCounts(snap);
+    for (const conflict of [false, true]) {
+      ctx.strokeStyle = conflict ? p.nearMiss : p.targetLine;
+      ctx.lineWidth = conflict ? 1.5 : 1;
+      ctx.beginPath();
+      for (let i = 0; i < snap.fielderCount; i++) {
+        const b = snap.fielderTargetBall[i];
+        if (b < 0 || snap.fielderAlive[i] === 0 || snap.ballState[b] !== BallState.FLYING) {
+          continue;
+        }
+        if (counts[b] > 1 !== conflict) continue;
+        const t = predictLandingAt(this.landing, snap.ballPos, snap.ballVel, b, h);
+        if (Number.isNaN(t)) continue;
+        ctx.moveTo(
+          this.toCanvasX(snap.fielderPos[3 * i]),
+          this.toCanvasY(snap.fielderPos[3 * i + 1]),
+        );
+        ctx.lineTo(this.toCanvasX(this.landing[0]), this.toCanvasY(this.landing[1]));
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
   }
 
   private drawFielders(

@@ -226,6 +226,55 @@ button:disabled {
   font-style: italic;
 }
 
+.inspector {
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.inspector[hidden] {
+  display: none;
+}
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.inspector-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.inspector-section h3 {
+  margin: 0.6rem 0 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.inspector-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.inspector-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+
+.inspector-table td,
+.inspector-table th {
+  padding: 0.1rem 0.4rem 0.1rem 0;
+  white-space: nowrap;
+}
+
 .hint[hidden] {
   display: none;
 }

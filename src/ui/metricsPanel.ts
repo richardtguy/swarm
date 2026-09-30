@@ -2,7 +2,7 @@
  * Live metrics readout, fed by frames from the worker, including the gap to the oracle run
  * on the same seed.
  */
-import type { MetricsSummary } from '../core/metrics/metrics';
+import { RECENT_WINDOW, type MetricsSummary } from '../core/metrics/metrics';
 import { el } from './dom';
 
 export interface MetricsHandlers {
@@ -29,11 +29,19 @@ export class MetricsPanel {
       ['catchRate', 'Catch rate'],
       ['oracleRate', 'Oracle, same seed'],
       ['relative', 'Relative to oracle'],
+      ['recent', `Last ${RECENT_WINDOW} balls`],
+      ['recentOracle', `Oracle, last ${RECENT_WINDOW}`],
+      ['contested', 'Balls chased by 2+'],
       ['nearMisses', 'Near-misses'],
+      ['sent', 'Messages sent'],
+      ['delivered', 'Delivered'],
+      ['msgDropped', 'Messages dropped'],
+      ['messageRate', 'Msgs / fielder / s'],
       ['distance', 'Distance (m)'],
     ];
     const dl = el('dl', { class: 'readout' });
     for (const [key, label] of rows) {
+      if (this.cells.has(key)) throw new Error(`Duplicate metrics row key "${key}"`);
       const dd = el('dd', { text: '—' });
       this.cells.set(key, dd);
       dl.append(el('dt', { text: label }), dd);
@@ -75,7 +83,20 @@ export class MetricsPanel {
         reference.catchRate > 0 ? percent(m.catchRate / reference.catchRate) : '—',
       );
     }
+    this.set('recent', m.recentSettled > 0 ? percent(m.recentCatchRate) : '—');
+    this.set(
+      'recentOracle',
+      reference !== null && reference.recentSettled > 0 ? percent(reference.recentCatchRate) : '—',
+    );
+    this.set('contested', String(m.contestedBalls));
     this.set('nearMisses', String(m.nearMisses));
+    this.set('sent', String(m.messagesSent));
+    this.set('delivered', String(m.messagesDelivered));
+    this.set(
+      'msgDropped',
+      `${m.droppedBandwidth} bandwidth · ${m.droppedLoss} loss · ${m.droppedRecipientDead} dead`,
+    );
+    this.set('messageRate', m.messageRate.toFixed(2));
     this.set('distance', m.distanceTravelled.toFixed(0));
     this.strategyLine.textContent = strategy.isOracle
       ? `Strategy: ${strategy.name} — ORACLE benchmark (global knowledge)`

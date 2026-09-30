@@ -3,6 +3,7 @@
  * registry rather than a re-export: import strategy modules directly if you need their types.
  */
 import { centralisedStrategy } from './centralised';
+import { claimsStrategy } from './claims';
 import { greedyStrategy } from './greedy';
 import { idleStrategy } from './idle';
 import type { AnyStrategy } from './types';
@@ -10,6 +11,7 @@ import type { AnyStrategy } from './types';
 const registry: ReadonlyMap<string, AnyStrategy> = new Map<string, AnyStrategy>([
   [centralisedStrategy.name, centralisedStrategy],
   [greedyStrategy.name, greedyStrategy],
+  [claimsStrategy.name, claimsStrategy],
   [idleStrategy.name, idleStrategy],
 ]);
 

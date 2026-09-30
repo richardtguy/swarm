@@ -4,6 +4,7 @@
  * This is a project contract (CLAUDE.md section 13): ask before changing it.
  */
 import type { SimCommand } from '../core/commands';
+import type { Inspection } from '../core/inspection';
 import type { SimEvent } from '../core/metrics/eventLog';
 import type { MetricsSummary } from '../core/metrics/metrics';
 import type { WorldSnapshot } from '../core/snapshot';
@@ -15,7 +16,12 @@ export type WorkerCommand =
   /** Sim seconds per wall-clock second. 0 stops the clock without pausing the sim. */
   | { type: 'setTimeScale'; timeScale: number }
   /** Ask for the current state hash (for determinism checks against headless runs). */
-  | { type: 'requestHash' };
+  | { type: 'requestHash' }
+  /**
+   * Choose the fielder whose view the inspector shows, or null for none. View-only: it never
+   * changes the simulation.
+   */
+  | { type: 'inspect'; fielderId: number | null };
 
 /** One rendered frame's worth of simulation output. */
 export interface FrameMessage {
@@ -32,6 +38,8 @@ export interface FrameMessage {
   strategy: { name: string; isOracle: boolean };
   paused: boolean;
   finished: boolean;
+  /** The inspected fielder's view and state, or null when nothing is inspected. */
+  inspection: Inspection | null;
 }
 
 /** Worker → main. */

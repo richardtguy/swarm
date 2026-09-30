@@ -23,9 +23,12 @@ interface Golden {
 const GOLDENS: Golden[] = [
   { file: 'baseline.json', strategy: 'centralised', caught: 87, dropped: 13, tolerance: 2 },
   { file: 'baseline.json', strategy: 'greedy', caught: 59, dropped: 41, tolerance: 2 },
+  { file: 'baseline.json', strategy: 'claims', caught: 78, dropped: 22, tolerance: 2 },
   { file: 'baseline.json', strategy: 'idle', caught: 7, dropped: 93, tolerance: 2 },
   { file: 'dense-salvo.json', strategy: 'centralised', caught: 42, dropped: 18, tolerance: 2 },
   { file: 'dense-salvo.json', strategy: 'greedy', caught: 29, dropped: 31, tolerance: 2 },
+  // Claims barely beats greedy on a simultaneous salvo: see the L2 note in CLAUDE.md.
+  { file: 'dense-salvo.json', strategy: 'claims', caught: 30, dropped: 30, tolerance: 2 },
 ];
 
 describe('golden metrics', () => {

@@ -145,6 +145,7 @@ swarm-fielding/
 │   │   ├── state.ts            # SoA typed-array state for fielders and balls
 │   │   ├── snapshot.ts         # WorldSnapshot (Float32 copies for renderers/worker/oracle)
 │   │   ├── hash.ts             # deterministic state hash for determinism checks
+│   │   ├── inspection.ts       # serialisable summary of one fielder's view for the inspector
 │   │   ├── loop.ts             # FixedStepAccumulator: wall-clock time → whole ticks
 │   │   ├── physics/
 │   │   │   ├── ballistics.ts   # integration, analytic landing prediction
@@ -187,6 +188,7 @@ swarm-fielding/
 │   │   ├── interpolate.ts      # blends the last two snapshots for smooth motion
 │   │   ├── colours.ts          # pursued-ball hue shared by both renderers
 │   │   ├── landing.ts          # landing-ring radius from sensing noise
+│   │   ├── pursuit.ts          # pursuers per ball, for conflict highlighting
 │   │   ├── topdown2d/          # Canvas 2D renderer
 │   │   └── three/
 │   │       ├── scene3d.ts
@@ -325,13 +327,18 @@ Every strategy must use this same function so comparisons between strategies are
 
 ### L2 — Claims
 
-- Each fielder maintains a claims table in memory: `ballId → { holder, eta, lastHeardTick }`.
-- It broadcasts `CLAIM` when it adopts a target, when its eta changes by more than `etaEpsilon`, and every `heartbeatInterval` ticks.
-- **Conflict rule:** claim A beats claim B if `A.eta < B.eta - claimMargin`; otherwise the lower id wins. This rule must be deterministic and identical at every agent.
-- A fielder that loses a conflict marks the ball as taken and re-plans among unclaimed or beatable balls.
-- Claims expire after `claimTtl` ticks without a refresh. This handles lost messages and dead fielders.
-- On catch, the fielder broadcasts `CAUGHT`. On abandoning a target, it broadcasts `RELEASE`.
-- Hysteresis (`switchMargin`) prevents target thrashing.
+Implemented in `strategies/claims.ts`.
+
+- Each fielder keeps a claims table in memory with one entry per claimant per ball: `ballId → claimantId → { eta, sentTick }`. Keeping every claimant, not just the winner, means the runner-up takes over as soon as the winner's claim expires or is released. The fielder's own claim is not stored in the table.
+- A claim's `eta` is an **absolute sim time**: when the claimant expects to reach the landing point. Durations sent in different ticks would not be comparable.
+- It broadcasts `CLAIM` when it adopts a target, when its arrival time moves by more than `etaEpsilon`, and every `heartbeatInterval` ticks.
+- **Conflict rule (tie-group).** Among all claims on a ball, take the earliest `eta`. Every claim with `eta <= earliest + claimMargin` is tied, and the lowest id among the tied holds the ball. For two claimants this is exactly "A beats B if `A.eta < B.eta - claimMargin`, otherwise the lower id wins". Applying that pairwise rule repeatedly can form a cycle with three claimants, so it is not used. `claimHolder` implements the rule; it must stay deterministic and identical at every agent.
+- For the ball it already claims, a fielder judges by the `eta` it last broadcast, not a fresh estimate, so every agent applies the rule to the same numbers.
+- A fielder that loses a conflict re-plans among the balls it would hold, choosing the soonest-reachable. Hysteresis (`switchMargin`) prevents target thrashing.
+- Claims expire `claimTtl` ticks after they were **sent**. This handles lost messages and dead fielders. Latency therefore ages claims: with latency near `claimTtl`, claims arrive already stale.
+- **Catches are inferred.** `LocalView` has no catch signal, and a caught ball simply leaves the fielder's view, as a dropped ball does. When its target vanishes, a fielder abandons it and broadcasts `RELEASE`. `CAUGHT` and `HEARTBEAT` are honoured if received but never sent.
+- With no messages at all (bandwidth 0), claims makes exactly greedy's choices, so the two runs are bit-identical. A test enforces this.
+- **Measured.** On `baseline.json` claims recovers about 90% of the greedy-to-oracle gap across seeds. On `dense-salvo.json` it recovers only about 15%, and even with perfect comms and sensing about 38%. That matches a centralised greedy-by-arrival matching, so the limit is the soonest-reachable rule on a simultaneous salvo, not the comms. This is the case L3 exists for. Do not tune L2 to hide it.
 
 ### L3 — Auction / CBBA (later phase)
 
@@ -401,12 +408,19 @@ Avoidance is *behaviour*: fielders try not to collide. Collisions are *physics*:
 | Parameter | Default | Meaning |
 |---|---|---|
 | `commsRange` | 30 m | Broadcast reaches alive fielders within range **at send time** |
-| `latency` | 0.1 s | Converted to whole ticks, rounded up |
+| `latency` | 0.1 s | Converted to whole ticks, rounded up, minimum one tick |
 | `lossProb` | 0 | Independent per-recipient drop, from `rng.stream('comms')` |
 | `bandwidth` | 8 | Max messages sent per agent per tick; excess dropped, newest first |
 
+Implemented in `comms/messageBus.ts`.
+
 - Messages are broadcast only; there is no addressing in the first version.
-- Count every sent, delivered and dropped message, with the drop reason.
+- Sending happens in tick stage 5 at start-of-tick positions, which is what "range at send time" means. Delivery happens in stage 3, so a message can never arrive in the tick it was sent: the minimum latency is one tick.
+- Latency-to-ticks conversion uses a small tolerance, because floating-point division makes 0.14 / 0.02 = 7.000000000000001, which would otherwise round up to 8.
+- Loss draws happen in a fixed order: sender, then outbox position, then recipient.
+- A message from a fielder that dies after sending is still delivered. A message to a fielder that dies in flight is dropped.
+- Each broadcast is one frozen object shared by every recipient's inbox; strategies must not modify inboxes.
+- Counted: sent (broadcasts past the bandwidth cap), delivered (per recipient), and dropped by reason: `bandwidth`, `loss`, `recipientDead`.
 - **Later:** multi-hop relay, jamming zones, directional links, and per-message size budgets.
 
 ---
@@ -449,7 +463,8 @@ Avoidance is *behaviour*: fielders try not to collide. Collisions are *physics*:
   - near-miss highlights;
   - collision flashes at contact points, dimmed stunned fielders (with a countdown ring), and fading markers where fielders crashed.
 - **Collision controls.** The UI has a collision mode selector and sliders for the collision parameters.
-- **Inspector.** Clicking a fielder shows its `LocalView`, claims table and recent inbox.
+- **Inspector.** Clicking a fielder shows its `LocalView`, claims table and recent inbox. The main thread sends an `inspect` command naming the fielder; each frame then carries an `Inspection` for that fielder only. Inspecting never changes the run.
+- **Conflicts.** Target lines to a ball chased by more than one fielder are drawn in the near-miss colour, and the metrics panel counts such balls.
 - **Themes.** Support light and dark themes through CSS custom properties.
 - **Layout.** The UI must stay usable on a narrow phone screen: collapsible control panel, touch camera controls.
 
@@ -506,14 +521,14 @@ Work on the current phase unless asked otherwise. The detailed goals for each ph
 - [x] **Phase 0 — Scaffolding.** Toolchain, core types, RNG, vec3, fixed-step loop, determinism test, lint purity rules.
 - [x] **Phase 1 — World and oracle.** Ballistics, launcher, the 2D renderer, the Worker, the centralised Hungarian oracle. (Also pulled forward: `timeToReach`, arrive steering, the hash grid, the scenario validator and the metrics panel, because the oracle's fielders need them.)
 - [x] **Phase 2 — Autonomous agents.** Perception, `LocalView`, greedy strategy, separation, near-misses, live gap to the oracle (a shadow oracle run on the same seed in the Worker and in `npm run sim`).
-- [ ] **Phase 3 — Communication and claims.** Message bus, claims protocol, comms sliders, the kill-fielders command, the inspector.
+- [x] **Phase 3 — Communication and claims.** Message bus, claims protocol, comms sliders, the kill-fielders command, the inspector. Claims meets the "recovers most of the gap" bar on streaming launches but not on simultaneous salvos (see *L2 — Claims*).
 - [x] **Phase 4 — 3D view.** three.js scene, instancing, camera rig and presets, overlays, 2D/3D toggle, snapshot interpolation, collapsible panel for phones. Done ahead of Phase 3, so claim lines are target lines and comms links show range only.
 - [ ] **Phase 5 — Collisions.** Collision detection, simple push-apart response, configurable consequence modes (bounce, penalty, destructive, graded), bumps in `LocalView`, collision metrics, rendering and controls.
 - [ ] **Phase 6 — Experiment harness.** Headless sim and batch scripts, sweeps, CSV/JSON export, comparison report.
 - [ ] **Phase 7 — Advanced coordination and realism.** Auction/CBBA, noisy perception with a Kalman filter, drag and wind, multi-hop relay, heterogeneous fielders, coverage idle policy, ORCA, momentum-based collisions with mass.
 - [ ] **Phase 8 — Drones.** Airborne fielders, quadrotor-like dynamics, mid-air intercept, swept collision detection, energy/endurance limits.
 
-**Current phase:** Phase 3.
+**Current phase:** Phase 5.
 
 ---
 

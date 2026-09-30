@@ -47,7 +47,7 @@ The simulation includes a ladder of strategies. Each rung shows why the next one
 |---|---|---|---|
 | L0 | **Centralised oracle** | n/a (global knowledge) | The optimal assignment (Hungarian algorithm). Not a swarm, but it is the yardstick every other strategy is measured against. |
 | L1 | **Greedy** | None | Each fielder chases its best ball alone. Expect clumping, collisions and abandoned balls. This is the failure mode that motivates coordination. |
-| L2 | **Claims** | Local broadcast | Fielders announce "I'm taking ball N, ETA t". Conflicts resolve by a shared deterministic rule, and losers re-plan. This simple scheme recovers most of the lost performance. |
+| L2 | **Claims** | Local broadcast | Fielders announce "I'm taking ball N, ETA t". Conflicts resolve by a shared deterministic rule, and losers re-plan. On staggered launches it recovers about 90% of the gap to the oracle. On a simultaneous salvo it barely beats greedy, even with perfect comms, because going for the soonest-reachable ball is not the optimal assignment. |
 | L3 | **Auction / CBBA** | Local, iterative | Consensus-based bidding. It handles cases greedy claiming gets wrong, such as when two fielders should swap targets. |
 
 Planned additions include a coverage-seeking idle behaviour, multi-hop information relay and heterogeneous fielders.
@@ -287,7 +287,7 @@ Add headless single runs and batch parameter sweeps across seeds, with CSV and J
 - [x] Phase 0 — Scaffolding
 - [x] Phase 1 — World and benchmark
 - [x] Phase 2 — Autonomous fielders
-- [ ] Phase 3 — Communication and claims
+- [x] Phase 3 — Communication and claims
 - [x] Phase 4 — 3D visualisation
 - [ ] Phase 5 — Collisions
 - [ ] Phase 6 — Experiment harness

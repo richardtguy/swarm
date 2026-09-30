@@ -6,13 +6,33 @@
  */
 import { blendAvoidance, separation } from './agents/avoidance';
 import { steerArrive } from './agents/steering';
-import type { AgentMemory, BumpObservation, Decision, NeighbourObservation } from './agents/types';
-import type { Message } from './comms/types';
+import type {
+  AgentMemory,
+  BumpObservation,
+  Decision,
+  LocalView,
+  NeighbourObservation,
+} from './agents/types';
+import { EMPTY_INBOX, MessageBus } from './comms/messageBus';
+import type { Message, MessageBody } from './comms/types';
 import type { SimCommand } from './commands';
 import { DEFAULT_CONFIG, cloneConfig, setParam, type SimConfig } from './config';
 import { hashWorld } from './hash';
+import {
+  INSPECTOR_INBOX_LENGTH,
+  buildInspection,
+  inspectMessages,
+  type InspectedMessage,
+  type Inspection,
+} from './inspection';
 import { EventLog } from './metrics/eventLog';
-import { computeMetrics, type MetricsSummary, type RunCounters } from './metrics/metrics';
+import {
+  computeMetrics,
+  emptyRunCounters,
+  recordOutcome,
+  type MetricsSummary,
+  type RunCounters,
+} from './metrics/metrics';
 import { buildLocalView } from './perception/localView';
 import {
   checkNeighboursUnchanged,
@@ -37,7 +57,6 @@ const IDLE_DECISION: Readonly<Decision> = Object.freeze({
   outbox: [],
 });
 
-const EMPTY_INBOX: Message[] = [];
 const NO_BUMPS: BumpObservation[] = [];
 
 /** Cell size (m) of the fielder grid: separation, catch and near-miss queries. */
@@ -69,15 +88,30 @@ export class Simulation {
    * per tick and never changes the outcome of a well-behaved run. Off by default.
    */
   verifyViews = false;
+  /**
+   * Test aid for CLAUDE.md rule 4: collect decisions in reverse index order. A correct run gives
+   * a bit-identical result either way. Only meaningful with `sensing.noise = 0`, because noise
+   * is drawn in decision order. Off by default.
+   */
+  reverseDecideOrder = false;
 
   private strategy!: AnyStrategy;
   private memories: AgentMemory[] = [];
   /** Last tick's decision per fielder; `IDLE_DECISION` for dead fielders. */
   private decisions: Decision[] = [];
+  /** This tick's outbox per fielder, handed to the message bus. */
+  private outboxes: (readonly MessageBody[])[] = [];
   /** Ball each fielder pursued in the last tick, or -1. */
   private targetBall!: Int32Array;
-  /** Per-fielder inboxes for the current tick. Filled by the message bus from Phase 3. */
+  /** Per-fielder inboxes for the current tick, filled by the message bus. */
   private inboxes: Message[][] = [];
+  private readonly bus = new MessageBus();
+  private commsStream!: RngStream;
+
+  /** Fielder whose view is kept for the inspector, or null. */
+  private inspected: number | null = null;
+  private inspectedView: LocalView | null = null;
+  private inspectedInbox: InspectedMessage[] = [];
 
   private plan!: LaunchPlan;
   private nextLaunch = 0;
@@ -100,7 +134,7 @@ export class Simulation {
 
   private nearMissFlags!: Uint8Array;
   private nearMissActive = new Set<number>();
-  private counters: RunCounters = { nearMisses: 0 };
+  private counters: RunCounters = emptyRunCounters();
 
   // Scratch vectors for per-tick work; never escape this class.
   private readonly sPos = vec3();
@@ -123,11 +157,17 @@ export class Simulation {
     this.plan = createLaunchPlan(this.config, this.rng);
     this.nextLaunch = 0;
     this.perception = this.rng.stream('perception');
+    this.commsStream = this.rng.stream('comms');
     const n = this.world.fielderCount;
     const m = this.world.ballCapacity;
     this.memories = new Array<AgentMemory>(n);
     this.decisions = new Array<Decision>(n);
+    this.outboxes = new Array<readonly MessageBody[]>(n);
     this.inboxes = new Array<Message[]>(n);
+    this.bus.reset();
+    if (this.inspected !== null && this.inspected >= n) this.inspected = null;
+    this.inspectedView = null;
+    this.inspectedInbox = [];
     this.targetBall = new Int32Array(n).fill(-1);
     this.assignment = new Int32Array(n).fill(-1);
     this.replanDue = true;
@@ -141,12 +181,14 @@ export class Simulation {
     this.accelBuffer = new Float64Array(3 * n);
     this.nearMissFlags = new Uint8Array(n);
     this.nearMissActive = new Set<number>();
-    this.counters = { nearMisses: 0 };
+    this.counters = emptyRunCounters();
+    this.counters.comms = this.bus.counters;
     for (let i = 0; i < n; i++) {
       this.memories[i] = isOracle(this.strategy)
         ? { strategy: this.strategy.name }
         : this.strategy.initMemory(i);
       this.decisions[i] = IDLE_DECISION;
+      this.outboxes[i] = IDLE_DECISION.outbox;
       this.inboxes[i] = EMPTY_INBOX;
     }
   }
@@ -273,8 +315,10 @@ export class Simulation {
     observeFielders(world, this.fielderObservations);
   }
 
-  /** Stage 3: put messages due this tick into inboxes. Phase 3. */
-  private stageCommsDeliver(): void {}
+  /** Stage 3: put messages due this tick into inboxes. */
+  private stageCommsDeliver(): void {
+    this.bus.deliver(this.world, this.inboxes);
+  }
 
   /**
    * Oracle replan, before stage 4: on launch, catch, drop and kill events, and every
@@ -298,49 +342,64 @@ export class Simulation {
     const world = this.world;
     const strategy = this.strategy;
     const noisy = this.config.sensing.noise > 0;
-    for (let i = 0; i < world.fielderCount; i++) {
-      if (world.fielderAlive[i] === 0) {
-        this.decisions[i] = IDLE_DECISION;
-        continue;
-      }
-      if (isOracle(strategy)) {
-        this.decisions[i] = this.oracleDecision(i);
-        continue;
-      }
-      const balls = senseBalls(
-        world,
-        this.config,
-        i,
-        this.ballGrid,
-        this.ballBuffer,
-        noisy ? this.perception : null,
-      );
-      const neighbours = senseNeighbours(
-        world,
-        this.config,
-        i,
-        this.neighbourGrid,
-        this.fielderObservations,
-        this.fielderBuffer,
-      );
-      const view = buildLocalView(
-        world,
-        this.config,
-        i,
-        this.memories[i],
-        this.inboxes[i],
-        balls,
-        neighbours,
-        NO_BUMPS,
-      );
-      if (this.verifyViews) {
-        const given = neighbours.slice(); // decide() may reorder its own list
-        this.decisions[i] = strategy.decide(view);
-        checkNeighboursUnchanged(world, i, given);
-      } else {
-        this.decisions[i] = strategy.decide(view);
-      }
+    const n = world.fielderCount;
+    this.inspectedView = null;
+    for (let k = 0; k < n; k++) {
+      const i = this.reverseDecideOrder ? n - 1 - k : k;
+      this.decideFor(i, strategy, noisy);
+      this.outboxes[i] = this.decisions[i].outbox;
     }
+  }
+
+  /** Build fielder `i`'s view and collect its decision. */
+  private decideFor(i: number, strategy: AnyStrategy, noisy: boolean): void {
+    const world = this.world;
+    if (i === this.inspected && this.inboxes[i].length > 0) {
+      const recent = inspectMessages(this.inboxes[i], world.tick).reverse();
+      this.inspectedInbox = recent.concat(this.inspectedInbox).slice(0, INSPECTOR_INBOX_LENGTH);
+    }
+    if (world.fielderAlive[i] === 0) {
+      this.decisions[i] = IDLE_DECISION;
+      return;
+    }
+    if (isOracle(strategy)) {
+      this.decisions[i] = this.oracleDecision(i);
+      return;
+    }
+    const balls = senseBalls(
+      world,
+      this.config,
+      i,
+      this.ballGrid,
+      this.ballBuffer,
+      noisy ? this.perception : null,
+    );
+    const neighbours = senseNeighbours(
+      world,
+      this.config,
+      i,
+      this.neighbourGrid,
+      this.fielderObservations,
+      this.fielderBuffer,
+    );
+    const view = buildLocalView(
+      world,
+      this.config,
+      i,
+      this.memories[i],
+      this.inboxes[i],
+      balls,
+      neighbours,
+      NO_BUMPS,
+    );
+    if (this.verifyViews) {
+      const given = neighbours.slice(); // decide() may reorder its own list
+      this.decisions[i] = strategy.decide(view);
+      checkNeighboursUnchanged(world, i, given);
+    } else {
+      this.decisions[i] = strategy.decide(view);
+    }
+    if (i === this.inspected) this.inspectedView = view;
   }
 
   /** Follow the oracle's assignment: head for the assigned ball's current predicted landing. */
@@ -354,8 +413,21 @@ export class Simulation {
     return { target, targetBallId: b, outbox: [] };
   }
 
-  /** Stage 5: enqueue outboxes with range, latency, loss and bandwidth. Phase 3. */
-  private stageCommsSend(): void {}
+  /**
+   * Stage 5: broadcast this tick's outboxes with range, latency, loss and bandwidth. Positions
+   * are still start-of-tick here, which is what "range at send time" means.
+   */
+  private stageCommsSend(): void {
+    if (isOracle(this.strategy)) return; // the oracle sends nothing
+    this.bus.send(
+      this.world,
+      this.config,
+      this.outboxes,
+      this.neighbourGrid,
+      this.fielderBuffer,
+      this.commsStream,
+    );
+  }
 
   /**
    * Stage 6: steer each alive fielder towards its decision's target (or home when idle), blend
@@ -478,10 +550,12 @@ export class Simulation {
       if (best >= 0) {
         world.ballState[b] = BallState.CAUGHT;
         this.events.append({ type: 'CATCH', tick: world.tick, ballId: b, fielderId: best });
+        recordOutcome(this.counters, true);
         this.replanDue = true;
       } else if (z <= 0) {
         world.ballState[b] = BallState.DROPPED;
         this.events.append({ type: 'DROP', tick: world.tick, ballId: b });
+        recordOutcome(this.counters, false);
         this.replanDue = true;
       }
     }
@@ -538,7 +612,42 @@ export class Simulation {
 
   /** Summary metrics for the run so far. */
   metrics(): MetricsSummary {
-    return computeMetrics(this.world, this.counters);
+    return computeMetrics(this.world, this.counters, this.targetBall);
+  }
+
+  /** Choose the fielder the inspector follows, or null for none. Takes effect next tick. */
+  setInspected(id: number | null): void {
+    if (id !== null && (!Number.isInteger(id) || id < 0 || id >= this.world.fielderCount)) {
+      throw new RangeError(`setInspected: no fielder with id ${id}`);
+    }
+    if (id !== this.inspected) {
+      this.inspectedView = null;
+      this.inspectedInbox = [];
+    }
+    this.inspected = id;
+  }
+
+  /** The inspected fielder's view and state as of the last tick, or null if none is chosen. */
+  inspection(): Inspection | null {
+    const id = this.inspected;
+    if (id === null) return null;
+    const world = this.world;
+    const o = 3 * id;
+    const vx = world.fielderVel[o];
+    const vy = world.fielderVel[o + 1];
+    return buildInspection(
+      id,
+      world.tick,
+      world.fielderAlive[id] === 1,
+      this.strategy.name,
+      [world.fielderPos[o], world.fielderPos[o + 1], world.fielderPos[o + 2]],
+      Math.hypot(vx, vy),
+      this.inspectedView,
+      this.decisions[id],
+      this.memories[id],
+      this.config.strategy,
+      this.inspectedInbox,
+    );
   }
 
   /** A fresh snapshot of the world. */

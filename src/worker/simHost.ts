@@ -69,6 +69,10 @@ export class SimHost {
         case 'requestHash':
           this.post({ type: 'hash', tick: this.sim.world.tick, hash: this.sim.hash() });
           break;
+        case 'inspect':
+          this.sim.setInspected(message.fielderId);
+          this.dirty = true;
+          break;
       }
     } catch (error) {
       this.post({ type: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -111,6 +115,7 @@ export class SimHost {
         strategy: sim.strategyInfo,
         paused: sim.paused,
         finished: sim.isFinished(),
+        inspection: sim.inspection(),
       },
       snapshotBuffers(snapshot),
     );

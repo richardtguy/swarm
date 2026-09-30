@@ -119,6 +119,28 @@ describe('SimHost', () => {
     expect(oracleFrame.reference).toBeNull();
   });
 
+  it('includes the inspected fielder in frames, and stops when inspection ends', () => {
+    const { host, posted } = makeHost();
+    const config = cloneConfig(DEFAULT_CONFIG);
+    config.strategy.name = 'claims';
+    config.launch.pattern = 'salvo';
+    host.handle({ type: 'command', command: { type: 'init', config } });
+    host.handle({ type: 'inspect', fielderId: 3 });
+    host.pump(0.1);
+    const frame = posted.filter((m) => m.type === 'frame').at(-1);
+    if (frame === undefined || frame.type !== 'frame') throw new Error('no frame');
+    expect(frame.inspection).toMatchObject({ id: 3, hasView: true, strategy: 'claims' });
+
+    host.handle({ type: 'inspect', fielderId: null });
+    host.pump(0.02);
+    const after = posted.filter((m) => m.type === 'frame').at(-1);
+    if (after === undefined || after.type !== 'frame') throw new Error('no frame');
+    expect(after.inspection).toBeNull();
+
+    host.handle({ type: 'inspect', fielderId: 99_999 });
+    expect(posted.at(-1)).toMatchObject({ type: 'error' });
+  });
+
   it('stops stepping once the run is finished', () => {
     const { host } = makeHost();
     const config = cloneConfig(DEFAULT_CONFIG);
