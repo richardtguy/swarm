@@ -19,10 +19,13 @@ interface Golden {
   tolerance: number;
 }
 
+// Phase 2: oracle baseline moved 88 → 87 because every fielder now applies separation.
 const GOLDENS: Golden[] = [
-  { file: 'baseline.json', strategy: 'centralised', caught: 88, dropped: 12, tolerance: 2 },
+  { file: 'baseline.json', strategy: 'centralised', caught: 87, dropped: 13, tolerance: 2 },
+  { file: 'baseline.json', strategy: 'greedy', caught: 59, dropped: 41, tolerance: 2 },
   { file: 'baseline.json', strategy: 'idle', caught: 7, dropped: 93, tolerance: 2 },
   { file: 'dense-salvo.json', strategy: 'centralised', caught: 42, dropped: 18, tolerance: 2 },
+  { file: 'dense-salvo.json', strategy: 'greedy', caught: 29, dropped: 31, tolerance: 2 },
 ];
 
 describe('golden metrics', () => {

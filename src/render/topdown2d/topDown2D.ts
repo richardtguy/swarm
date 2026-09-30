@@ -25,6 +25,8 @@ interface Palette {
   landing: string;
   targetLine: string;
   selected: string;
+  nearMiss: string;
+  sensing: string;
 }
 
 export class TopDown2D implements Renderer {
@@ -214,15 +216,35 @@ export class TopDown2D implements Renderer {
         ctx.stroke();
         continue;
       }
-      ctx.fillStyle = snap.fielderTargetBall[i] >= 0 ? p.fielder : p.fielderIdle;
+      // Fielders chasing the same ball share a colour, so clumping is visible at a glance.
+      const target = snap.fielderTargetBall[i];
+      ctx.fillStyle = target >= 0 ? targetColour(target) : p.fielderIdle;
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, 2 * Math.PI);
       ctx.fill();
+      if (snap.fielderNearMiss[i] === 1) {
+        ctx.strokeStyle = p.nearMiss;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r + 2, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
       if (i === selected) {
         ctx.strokeStyle = p.selected;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(cx, cy, r + 4, 0, 2 * Math.PI);
+        ctx.stroke();
+        // Sensing range (dashed) and separation radius (solid) of the selected fielder.
+        ctx.strokeStyle = p.sensing;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, snap.config.sensing.range * this.scale, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, snap.config.strategy.separationRadius * this.scale, 0, 2 * Math.PI);
         ctx.stroke();
       }
     }
@@ -284,6 +306,13 @@ export class TopDown2D implements Renderer {
       landing: read('--landing', 'rgba(255,255,255,0.7)'),
       targetLine: read('--target-line', 'rgba(255,255,255,0.35)'),
       selected: read('--accent', '#ffd23f'),
+      nearMiss: read('--near-miss', '#e5484d'),
+      sensing: read('--sensing', 'rgba(255,255,255,0.5)'),
     };
   }
+}
+
+/** A stable, well-spread hue per ball id. */
+function targetColour(ballId: number): string {
+  return `hsl(${(ballId * 47) % 360} 75% 55%)`;
 }

@@ -1,9 +1,10 @@
 /**
- * The control panel: scenario, strategy, seed, speed, and run controls. It never touches the
- * simulation directly; every action is emitted as a command for the host to forward.
+ * The control panel: scenario, strategy, seed, speed, run controls and live parameter sliders.
+ * It never touches the simulation directly; every action is emitted as a command for the host
+ * to forward.
  */
 import type { SimCommand } from '../core/commands';
-import { DEFAULT_CONFIG, cloneConfig, type SimConfig } from '../core/config';
+import { DEFAULT_CONFIG, cloneConfig, setParam, type SimConfig } from '../core/config';
 import { validateScenario } from '../core/scenario/schema';
 import { getStrategy, strategyNames } from '../core/strategies/index';
 import baselineScenario from '../../scenarios/baseline.json';
@@ -25,6 +26,23 @@ const SCENARIOS: Record<string, unknown> = {
 
 const TIME_SCALES = [0.25, 0.5, 1, 2, 4];
 
+/** A live numeric parameter exposed as a slider. Changes apply immediately via `setParam`. */
+interface SliderSpec {
+  path: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  unit: string;
+}
+
+const SLIDERS: SliderSpec[] = [
+  { path: 'fielders.maxSpeed', label: 'Max speed', min: 1, max: 15, step: 0.5, unit: 'm/s' },
+  { path: 'sensing.range', label: 'Sensing range', min: 5, max: 150, step: 5, unit: 'm' },
+  { path: 'sensing.noise', label: 'Sensing noise', min: 0, max: 3, step: 0.1, unit: 'm' },
+  { path: 'strategy.separationRadius', label: 'Separation', min: 0, max: 6, step: 0.5, unit: 'm' },
+];
+
 export class Controls {
   readonly element: HTMLElement;
   private readonly scenarioSelect: HTMLSelectElement;
@@ -32,6 +50,7 @@ export class Controls {
   private readonly seedInput: HTMLInputElement;
   private readonly speedSelect: HTMLSelectElement;
   private readonly pauseButton: HTMLButtonElement;
+  private readonly sliders = new Map<string, HTMLInputElement>();
   private paused = false;
 
   constructor(handlers: ControlsHandlers) {
@@ -57,7 +76,7 @@ export class Controls {
     const stepButton = el('button', { type: 'button', text: 'Step' });
     const resetButton = el('button', { type: 'button', text: 'Reset' });
 
-    this.element = el('div', { class: 'controls' }, [
+    const runRow = el('div', { class: 'controls' }, [
       labelled('Scenario', this.scenarioSelect),
       labelled('Strategy', this.strategySelect),
       labelled('Seed', this.seedInput),
@@ -66,6 +85,9 @@ export class Controls {
       stepButton,
       resetButton,
     ]);
+    const sliderRow = el('div', { class: 'controls sliders' });
+    for (const spec of SLIDERS) sliderRow.append(this.buildSlider(spec, handlers));
+    this.element = el('div', { class: 'control-panel' }, [runRow, sliderRow]);
 
     const restart = (): void => handlers.onCommand({ type: 'init', config: this.buildConfig() });
     this.scenarioSelect.addEventListener('change', restart);
@@ -81,6 +103,29 @@ export class Controls {
     stepButton.addEventListener('click', () => handlers.onCommand({ type: 'step' }));
   }
 
+  private buildSlider(spec: SliderSpec, handlers: ControlsHandlers): HTMLElement {
+    const initial = readPath(DEFAULT_CONFIG, spec.path);
+    const input = el('input', {
+      type: 'range',
+      min: String(spec.min),
+      max: String(spec.max),
+      step: String(spec.step),
+      value: String(initial),
+    });
+    const value = el('span', { class: 'value', text: `${initial} ${spec.unit}` });
+    input.addEventListener('input', () => {
+      const v = Number(input.value);
+      value.textContent = `${v} ${spec.unit}`;
+      handlers.onCommand({ type: 'setParam', path: spec.path, value: v });
+    });
+    this.sliders.set(spec.path, input);
+    return el('label', { class: 'control slider' }, [
+      el('span', { text: spec.label }),
+      input,
+      value,
+    ]);
+  }
+
   /** The config described by the current control values. */
   buildConfig(): SimConfig {
     const base = SCENARIOS[this.scenarioSelect.value] ?? {};
@@ -91,6 +136,7 @@ export class Controls {
     const seed = Number.parseInt(this.seedInput.value, 10);
     if (Number.isFinite(seed) && seed >= 0) config.seed = seed;
     config.strategy.name = this.strategySelect.value;
+    for (const [path, input] of this.sliders) setParam(config, path, Number(input.value));
     return config;
   }
 
@@ -99,4 +145,10 @@ export class Controls {
     this.paused = paused;
     this.pauseButton.textContent = paused ? 'Resume' : 'Pause';
   }
+}
+
+function readPath(config: Readonly<SimConfig>, path: string): number {
+  let node: unknown = config;
+  for (const part of path.split('.')) node = (node as Record<string, unknown>)[part];
+  return node as number;
 }

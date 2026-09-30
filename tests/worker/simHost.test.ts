@@ -79,6 +79,46 @@ describe('SimHost', () => {
     expect(host.sim.world.tick).toBe(0);
   });
 
+  it('runs a shadow oracle in lockstep for autonomous strategies only', () => {
+    const { host, posted } = makeHost();
+    const config = cloneConfig(DEFAULT_CONFIG);
+    config.launch.pattern = 'salvo';
+    config.strategy.name = 'greedy';
+    host.handle({ type: 'command', command: { type: 'init', config } });
+    expect(host.reference).not.toBeNull();
+    host.pump(0.1);
+    host.handle({ type: 'command', command: { type: 'step', ticks: 7 } });
+    const killTick = host.sim.world.tick;
+    host.handle({ type: 'command', command: { type: 'killAgent', id: 3 } });
+    host.pump(0.1);
+    const frame = posted.filter((m) => m.type === 'frame').at(-1);
+    if (frame === undefined || frame.type !== 'frame') throw new Error('no frame');
+    expect(frame.reference).not.toBeNull();
+    expect(frame.reference?.tick).toBe(frame.metrics.tick);
+    expect(frame.reference?.fieldersAlive).toBe(frame.metrics.fieldersAlive);
+    expect(host.reference?.strategyInfo).toEqual({ name: 'centralised', isOracle: true });
+
+    // The shadow run is exactly an oracle run that received the same commands at the same ticks.
+    const oracleConfig = cloneConfig(config);
+    oracleConfig.strategy.name = 'centralised';
+    const direct = new Simulation(oracleConfig);
+    direct.run(killTick);
+    direct.killAgent(3);
+    direct.run(frame.metrics.tick - killTick);
+    expect(host.reference?.hash()).toBe(direct.hash());
+
+    host.handle({
+      type: 'command',
+      command: { type: 'setParam', path: 'strategy.name', value: 'centralised' },
+    });
+    host.handle({ type: 'command', command: { type: 'reset' } });
+    expect(host.reference).toBeNull();
+    host.pump(0.016);
+    const oracleFrame = posted.filter((m) => m.type === 'frame').at(-1);
+    if (oracleFrame === undefined || oracleFrame.type !== 'frame') throw new Error('no frame');
+    expect(oracleFrame.reference).toBeNull();
+  });
+
   it('stops stepping once the run is finished', () => {
     const { host } = makeHost();
     const config = cloneConfig(DEFAULT_CONFIG);

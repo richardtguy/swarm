@@ -342,8 +342,10 @@ Every strategy must use this same function so comparisons between strategies are
 
 ### Avoidance
 
-- The first version uses a simple separation force within `separationRadius`, blended with steering.
-- Any separation distance below `minSeparation` is logged as a near-miss event.
+- The first version uses a separation force within `separationRadius`: a spring `maxAccel * (1 - d / separationRadius)` plus damping on closing speed, with the coefficient derived for critical damping. Without the damping, fielders sharing a home oscillate indefinitely.
+- Separation has priority over steering: the component of steering that pushes into a neighbour is discarded before the two are summed and clamped to `maxAccel`.
+- All accelerations are computed from start-of-tick state before any fielder moves, so motion is independent of index order.
+- A pair closer than `minSeparation` is flagged in the snapshot every tick and logged as a `NEAR_MISS` event once per episode, when it first enters.
 - **Later:** ORCA / velocity obstacles.
 
 ### Collisions (Phase 5)
@@ -496,7 +498,7 @@ Work on the current phase unless asked otherwise. The detailed goals for each ph
 
 - [x] **Phase 0 — Scaffolding.** Toolchain, core types, RNG, vec3, fixed-step loop, determinism test, lint purity rules.
 - [x] **Phase 1 — World and oracle.** Ballistics, launcher, the 2D renderer, the Worker, the centralised Hungarian oracle. (Also pulled forward: `timeToReach`, arrive steering, the hash grid, the scenario validator and the metrics panel, because the oracle's fielders need them.)
-- [ ] **Phase 2 — Autonomous agents.** Perception, `LocalView`, greedy strategy, separation, inspector groundwork.
+- [x] **Phase 2 — Autonomous agents.** Perception, `LocalView`, greedy strategy, separation, near-misses, live gap to the oracle (a shadow oracle run on the same seed in the Worker and in `npm run sim`).
 - [ ] **Phase 3 — Communication and claims.** Message bus, claims protocol, comms sliders, the kill-fielders command, the inspector.
 - [ ] **Phase 4 — 3D view.** three.js scene, instancing, camera rig and presets, overlays, 2D/3D toggle.
 - [ ] **Phase 5 — Collisions.** Collision detection, simple push-apart response, configurable consequence modes (bounce, penalty, destructive, graded), bumps in `LocalView`, collision metrics, rendering and controls.
@@ -504,7 +506,7 @@ Work on the current phase unless asked otherwise. The detailed goals for each ph
 - [ ] **Phase 7 — Advanced coordination and realism.** Auction/CBBA, noisy perception with a Kalman filter, drag and wind, multi-hop relay, heterogeneous fielders, coverage idle policy, ORCA, momentum-based collisions with mass.
 - [ ] **Phase 8 — Drones.** Airborne fielders, quadrotor-like dynamics, mid-air intercept, swept collision detection, energy/endurance limits.
 
-**Current phase:** Phase 2.
+**Current phase:** Phase 3.
 
 ---
 

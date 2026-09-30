@@ -27,6 +27,8 @@ export interface WorldSnapshot {
   fielderStunnedUntil: Float32Array;
   /** Ball each fielder was pursuing in the last tick, or -1. */
   fielderTargetBall: Int32Array;
+  /** 1 if the fielder ended the tick closer than `minSeparation` to another, else 0. */
+  fielderNearMiss: Uint8Array;
   /** Balls launched so far. */
   ballCount: number;
   /** Positions (m), 3 per ball slot. */
@@ -42,6 +44,7 @@ export function createSnapshot(
   world: Readonly<World>,
   config: Readonly<SimConfig>,
   fielderTargetBall: Int32Array,
+  fielderNearMiss: Uint8Array,
 ): WorldSnapshot {
   return {
     tick: world.tick,
@@ -53,6 +56,7 @@ export function createSnapshot(
     fielderAlive: Uint8Array.from(world.fielderAlive),
     fielderStunnedUntil: Float32Array.from(world.fielderStunnedUntil),
     fielderTargetBall: Int32Array.from(fielderTargetBall),
+    fielderNearMiss: Uint8Array.from(fielderNearMiss),
     ballCount: world.ballCount,
     ballPos: Float32Array.from(world.ballPos),
     ballVel: Float32Array.from(world.ballVel),
@@ -68,6 +72,7 @@ export function snapshotBuffers(snapshot: WorldSnapshot): ArrayBuffer[] {
     snapshot.fielderAlive.buffer,
     snapshot.fielderStunnedUntil.buffer,
     snapshot.fielderTargetBall.buffer,
+    snapshot.fielderNearMiss.buffer,
     snapshot.ballPos.buffer,
     snapshot.ballVel.buffer,
     snapshot.ballState.buffer,

@@ -4,18 +4,20 @@
  * exactly that order. Stages that later phases fill in are present as empty methods so the
  * order is fixed now.
  */
+import { blendAvoidance, separation } from './agents/avoidance';
 import { steerArrive } from './agents/steering';
-import type { AgentMemory, Decision } from './agents/types';
+import type { AgentMemory, BumpObservation, Decision } from './agents/types';
 import type { Message } from './comms/types';
 import type { SimCommand } from './commands';
 import { DEFAULT_CONFIG, cloneConfig, setParam, type SimConfig } from './config';
 import { hashWorld } from './hash';
 import { EventLog } from './metrics/eventLog';
-import { computeMetrics, type MetricsSummary } from './metrics/metrics';
+import { computeMetrics, type MetricsSummary, type RunCounters } from './metrics/metrics';
 import { buildLocalView } from './perception/localView';
+import { senseBalls, senseNeighbours } from './perception/sensing';
 import { integrateBallistic, predictLandingAt } from './physics/ballistics';
 import { createLaunchPlan, type LaunchPlan } from './physics/launcher';
-import { Rng } from './rng';
+import { Rng, type RngStream } from './rng';
 import { createSnapshot, type WorldSnapshot } from './snapshot';
 import { HashGrid } from './spatial/hashGrid';
 import { BallState, createWorld, type World } from './state';
@@ -31,9 +33,12 @@ const IDLE_DECISION: Readonly<Decision> = Object.freeze({
 });
 
 const EMPTY_INBOX: Message[] = [];
+const NO_BUMPS: BumpObservation[] = [];
 
-/** Cell size (m) of the fielder grid used for catch resolution. */
-const CATCH_GRID_CELL = 4;
+/** Cell size (m) of the fielder grid: neighbour, separation, catch and near-miss queries. */
+const FIELDER_GRID_CELL = 4;
+/** Cell size (m) of the flying-ball grid used by perception. */
+const BALL_GRID_CELL = 10;
 
 /** One run of the fielding scenario. */
 export class Simulation {
@@ -59,14 +64,26 @@ export class Simulation {
   /** Oracle assignment: fielder → ball id or -1. Unused for autonomous strategies. */
   private assignment!: Int32Array;
   private replanDue = true;
-  private grid!: HashGrid;
-  private queryBuffer!: Int32Array;
+
+  private perception!: RngStream;
+  private fielderGrid!: HashGrid;
+  private ballGrid!: HashGrid;
+  private flyingMask!: Uint8Array;
+  private fielderBuffer!: Int32Array;
+  private ballBuffer!: Int32Array;
+  /** Accelerations for the current tick, computed before any fielder moves. */
+  private accelBuffer!: Float64Array;
+
+  private nearMissFlags!: Uint8Array;
+  private nearMissActive = new Set<number>();
+  private counters: RunCounters = { nearMisses: 0 };
 
   // Scratch vectors for per-tick work; never escape this class.
   private readonly sPos = vec3();
   private readonly sVel = vec3();
   private readonly sTarget = vec3();
   private readonly sAccel = vec3();
+  private readonly sPush = vec3();
 
   constructor(config: Readonly<SimConfig> = DEFAULT_CONFIG) {
     this.init(config);
@@ -81,15 +98,24 @@ export class Simulation {
     this.events.clear();
     this.plan = createLaunchPlan(this.config, this.rng);
     this.nextLaunch = 0;
+    this.perception = this.rng.stream('perception');
     const n = this.world.fielderCount;
+    const m = this.world.ballCapacity;
     this.memories = new Array<AgentMemory>(n);
     this.decisions = new Array<Decision>(n);
     this.inboxes = new Array<Message[]>(n);
     this.targetBall = new Int32Array(n).fill(-1);
     this.assignment = new Int32Array(n).fill(-1);
     this.replanDue = true;
-    this.grid = new HashGrid(CATCH_GRID_CELL, n);
-    this.queryBuffer = new Int32Array(Math.max(1, n));
+    this.fielderGrid = new HashGrid(FIELDER_GRID_CELL, n);
+    this.ballGrid = new HashGrid(BALL_GRID_CELL, m);
+    this.flyingMask = new Uint8Array(m);
+    this.fielderBuffer = new Int32Array(Math.max(1, n));
+    this.ballBuffer = new Int32Array(Math.max(1, m));
+    this.accelBuffer = new Float64Array(3 * n);
+    this.nearMissFlags = new Uint8Array(n);
+    this.nearMissActive = new Set<number>();
+    this.counters = { nearMisses: 0 };
     for (let i = 0; i < n; i++) {
       this.memories[i] = isOracle(this.strategy)
         ? { strategy: this.strategy.name }
@@ -140,6 +166,7 @@ export class Simulation {
     this.world.fielderAlive[id] = 0;
     this.world.fielderVel.fill(0, 3 * id, 3 * id + 3);
     this.targetBall[id] = -1;
+    this.nearMissFlags[id] = 0;
     this.replanDue = true;
     this.events.append({ type: 'KILL', tick: this.world.tick, fielderId: id });
   }
@@ -165,8 +192,7 @@ export class Simulation {
   step(): void {
     const world = this.world;
     this.stageLaunch();
-    // Stages 2–4 use start-of-tick state. Perception happens inside stageDecide, per fielder,
-    // but always from the unmodified world; nothing is applied until stageMotion.
+    this.stagePerception();
     this.stageCommsDeliver();
     this.stageOraclePlan();
     this.stageDecide();
@@ -201,6 +227,19 @@ export class Simulation {
     }
   }
 
+  /**
+   * Stage 2: index start-of-tick state for perception. The views themselves are assembled per
+   * fielder in stageDecide, still from this unmodified state.
+   */
+  private stagePerception(): void {
+    const world = this.world;
+    this.fielderGrid.build(world.fielderPos, world.fielderCount, world.fielderAlive);
+    for (let b = 0; b < world.ballCount; b++) {
+      this.flyingMask[b] = world.ballState[b] === BallState.FLYING ? 1 : 0;
+    }
+    this.ballGrid.build(world.ballPos, world.ballCount, this.flyingMask);
+  }
+
   /** Stage 3: put messages due this tick into inboxes. Phase 3. */
   private stageCommsDeliver(): void {}
 
@@ -217,7 +256,7 @@ export class Simulation {
   }
 
   /**
-   * Stages 2 and 4: build each alive fielder's view of the start-of-tick world and collect its
+   * Stage 4: build each alive fielder's view of the start-of-tick world and collect its
    * decision. Nothing is applied here. Fielders are visited in index order (rule 3), and
    * because every view is built from the same unmodified world, the order cannot affect the
    * outcome (rule 4).
@@ -225,6 +264,7 @@ export class Simulation {
   private stageDecide(): void {
     const world = this.world;
     const strategy = this.strategy;
+    const noisy = this.config.sensing.noise > 0;
     for (let i = 0; i < world.fielderCount; i++) {
       if (world.fielderAlive[i] === 0) {
         this.decisions[i] = IDLE_DECISION;
@@ -234,7 +274,31 @@ export class Simulation {
         this.decisions[i] = this.oracleDecision(i);
         continue;
       }
-      const view = buildLocalView(world, this.config, i, this.memories[i], this.inboxes[i]);
+      const balls = senseBalls(
+        world,
+        this.config,
+        i,
+        this.ballGrid,
+        this.ballBuffer,
+        noisy ? this.perception : null,
+      );
+      const neighbours = senseNeighbours(
+        world,
+        this.config,
+        i,
+        this.fielderGrid,
+        this.fielderBuffer,
+      );
+      const view = buildLocalView(
+        world,
+        this.config,
+        i,
+        this.memories[i],
+        this.inboxes[i],
+        balls,
+        neighbours,
+        NO_BUMPS,
+      );
       this.decisions[i] = strategy.decide(view);
     }
   }
@@ -254,17 +318,21 @@ export class Simulation {
   private stageCommsSend(): void {}
 
   /**
-   * Stage 6: steer each alive fielder towards its decision's target (or home when idle) with
-   * acceleration and speed limits, then integrate with semi-implicit Euler. Fielders are
-   * ground-bound: z stays 0. Separation/avoidance arrives in Phase 2.
+   * Stage 6: steer each alive fielder towards its decision's target (or home when idle), blend
+   * in separation from nearby fielders (which takes priority: steering never pushes into a
+   * neighbour), clamp to `maxAccel`, then integrate with semi-implicit Euler. Every acceleration is computed from start-of-tick state before any fielder moves,
+   * so the result does not depend on index order. Fielders are ground-bound: z stays 0.
    */
   private stageMotion(): void {
     const world = this.world;
     const dt = this.config.dt;
     const { maxSpeed, maxAccel } = this.config.fielders;
+    const separationRadius = this.config.strategy.separationRadius;
     const pos = world.fielderPos;
     const vel = world.fielderVel;
-    const { sPos, sVel, sTarget, sAccel } = this;
+    const accel = this.accelBuffer;
+    const { sPos, sVel, sTarget, sAccel, sPush } = this;
+
     for (let i = 0; i < world.fielderCount; i++) {
       if (world.fielderAlive[i] === 0) {
         this.targetBall[i] = -1;
@@ -281,10 +349,25 @@ export class Simulation {
         load(sTarget, world.fielderHome, i);
       }
       steerArrive(sAccel, sPos, sVel, sTarget, maxSpeed, maxAccel, dt);
+      if (separationRadius > 0) {
+        const found = this.fielderGrid.query(
+          sPos[0],
+          sPos[1],
+          separationRadius,
+          this.fielderBuffer,
+        );
+        separation(sPush, pos, vel, i, this.fielderBuffer, found, separationRadius, maxAccel);
+        blendAvoidance(sAccel, sPush, maxAccel);
+      }
+      accel[3 * i] = sAccel[0];
+      accel[3 * i + 1] = sAccel[1];
+    }
 
+    for (let i = 0; i < world.fielderCount; i++) {
+      if (world.fielderAlive[i] === 0) continue;
       const o = 3 * i;
-      let vx = sVel[0] + sAccel[0] * dt;
-      let vy = sVel[1] + sAccel[1] * dt;
+      let vx = vel[o] + accel[o] * dt;
+      let vy = vel[o + 1] + accel[o + 1] * dt;
       const speedSq = vx * vx + vy * vy;
       if (speedSq > maxSpeed * maxSpeed) {
         const k = maxSpeed / Math.sqrt(speedSq);
@@ -318,15 +401,18 @@ export class Simulation {
   }
 
   /**
-   * Stage 9: settle catches and drops. A descending ball at or below catch height is caught by
-   * the nearest alive fielder within the catch radius (ties to the lowest id); a descending
-   * ball at or below the ground that nobody caught is dropped.
+   * Stage 9: settle catches, drops and separation violations. A descending ball at or below
+   * catch height is caught by the nearest alive fielder within the catch radius (ties to the
+   * lowest id); a descending ball at or below the ground that nobody caught is dropped. Pairs
+   * of alive fielders closer than `minSeparation` are flagged, and logged once per episode.
    */
   private stageResolve(): void {
     const world = this.world;
     const { radius, height } = this.config.catch;
-    this.grid.build(world.fielderPos, world.fielderCount, world.fielderAlive);
-    const buffer = this.queryBuffer;
+    const grid = this.fielderGrid;
+    grid.build(world.fielderPos, world.fielderCount, world.fielderAlive);
+    const buffer = this.fielderBuffer;
+
     for (let b = 0; b < world.ballCount; b++) {
       if (world.ballState[b] !== BallState.FLYING) continue;
       const o = 3 * b;
@@ -336,7 +422,7 @@ export class Simulation {
 
       const x = world.ballPos[o];
       const y = world.ballPos[o + 1];
-      const found = this.grid.query(x, y, radius, buffer);
+      const found = grid.query(x, y, radius, buffer);
       let best = -1;
       let bestDistSq = Number.POSITIVE_INFINITY;
       for (let k = 0; k < found; k++) {
@@ -359,6 +445,37 @@ export class Simulation {
         this.replanDue = true;
       }
     }
+
+    const minSeparation = this.config.strategy.minSeparation;
+    const flags = this.nearMissFlags;
+    flags.fill(0);
+    const active = new Set<number>();
+    if (minSeparation > 0) {
+      const n = world.fielderCount;
+      for (let i = 0; i < n; i++) {
+        if (world.fielderAlive[i] === 0) continue;
+        const x = world.fielderPos[3 * i];
+        const y = world.fielderPos[3 * i + 1];
+        const found = grid.query(x, y, minSeparation, buffer);
+        for (let k = 0; k < found; k++) {
+          const j = buffer[k];
+          if (j <= i) continue;
+          const dx = world.fielderPos[3 * j] - x;
+          const dy = world.fielderPos[3 * j + 1] - y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance >= minSeparation) continue;
+          const key = i * n + j;
+          active.add(key);
+          flags[i] = 1;
+          flags[j] = 1;
+          if (!this.nearMissActive.has(key)) {
+            this.counters.nearMisses++;
+            this.events.append({ type: 'NEAR_MISS', tick: world.tick, a: i, b: j, distance });
+          }
+        }
+      }
+    }
+    this.nearMissActive = active;
   }
 
   /** Stage 10: per-tick metric updates. Summaries are computed on demand by `metrics()`. */
@@ -381,12 +498,12 @@ export class Simulation {
 
   /** Summary metrics for the run so far. */
   metrics(): MetricsSummary {
-    return computeMetrics(this.world);
+    return computeMetrics(this.world, this.counters);
   }
 
   /** A fresh snapshot of the world. */
   snapshot(): WorldSnapshot {
-    return createSnapshot(this.world, this.config, this.targetBall);
+    return createSnapshot(this.world, this.config, this.targetBall, this.nearMissFlags);
   }
 
   /** Hash of the complete world state, for determinism checks. */

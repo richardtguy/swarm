@@ -286,3 +286,101 @@ describe('Simulation commands', () => {
     expect(sim.world.fielderPos[0]).not.toBe(1234);
   });
 });
+
+describe('Autonomous fielders (Phase 2)', () => {
+  it('greedy fielders catch far more than idle ones but fewer than the oracle', () => {
+    const config = cloneConfig(DEFAULT_CONFIG);
+    config.launch.pattern = 'salvo';
+    config.launch.count = 40;
+    config.duration = 15;
+    const caughtWith = (name: string): number => {
+      const c = cloneConfig(config);
+      c.strategy.name = name;
+      const sim = new Simulation(c);
+      while (!sim.isFinished()) sim.step();
+      return sim.metrics().ballsCaught;
+    };
+    const idle = caughtWith('idle');
+    const greedy = caughtWith('greedy');
+    const oracle = caughtWith('centralised');
+    expect(greedy).toBeGreaterThan(idle);
+    expect(greedy).toBeLessThan(oracle);
+  });
+
+  it('greedy fielders converge on the same balls and log near-misses', () => {
+    const config = cloneConfig(DEFAULT_CONFIG);
+    config.launch.pattern = 'salvo';
+    config.launch.count = 40;
+    config.duration = 15;
+    config.strategy.name = 'greedy';
+    const sim = new Simulation(config);
+    sim.run(50);
+    const targets = new Map<number, number>();
+    for (let i = 0; i < sim.world.fielderCount; i++) {
+      const b = sim.decisionOf(i).targetBallId;
+      if (b !== null) targets.set(b, (targets.get(b) ?? 0) + 1);
+    }
+    expect([...targets.values()].some((n) => n > 1)).toBe(true);
+    while (!sim.isFinished()) sim.step();
+    const nearMisses = sim.events.all().filter((e) => e.type === 'NEAR_MISS');
+    expect(nearMisses.length).toBeGreaterThan(0);
+    expect(sim.metrics().nearMisses).toBe(nearMisses.length);
+    for (const e of nearMisses) {
+      if (e.type !== 'NEAR_MISS') continue;
+      expect(e.a).toBeLessThan(e.b);
+      expect(e.distance).toBeLessThan(config.strategy.minSeparation);
+    }
+  });
+
+  it('separation keeps two idle fielders with the same home apart', () => {
+    const config = quietConfig();
+    config.fielders.count = 2;
+    const sim = new Simulation(config);
+    sim.world.fielderHome.set([0, 0, 0, 0, 0, 0]);
+    sim.world.fielderPos.set([-0.3, 0, 0, 0.3, 0, 0]);
+    sim.run(500);
+    const gap = Math.abs(sim.world.fielderPos[3] - sim.world.fielderPos[0]);
+    expect(gap).toBeGreaterThan(config.strategy.minSeparation);
+    expect(gap).toBeLessThanOrEqual(config.strategy.separationRadius + 0.1);
+    expect(sim.snapshot().fielderNearMiss[0]).toBe(0);
+  });
+
+  it('logs a near-miss once per episode and flags both fielders', () => {
+    const config = quietConfig();
+    config.fielders.count = 2;
+    config.strategy.separationRadius = 0; // no force, so the pair stays close
+    const sim = new Simulation(config);
+    sim.world.fielderHome.set([0, 0, 0, 0.2, 0, 0]);
+    sim.world.fielderPos.set([0, 0, 0, 0.2, 0, 0]);
+    sim.run(20);
+    const events = sim.events.all().filter((e) => e.type === 'NEAR_MISS');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'NEAR_MISS', tick: 0, a: 0, b: 1 });
+    expect([...sim.snapshot().fielderNearMiss]).toEqual([1, 1]);
+    expect(sim.metrics().nearMisses).toBe(1);
+  });
+
+  it('gives greedy fielders a populated local view', () => {
+    const config = cloneConfig(DEFAULT_CONFIG);
+    config.launch.pattern = 'salvo';
+    config.strategy.name = 'greedy';
+    const sim = new Simulation(config);
+    sim.run(10);
+    expect(sim.memoryOf(0)).toMatchObject({ strategy: 'greedy' });
+    let pursuing = 0;
+    for (let i = 0; i < sim.world.fielderCount; i++) {
+      if (sim.decisionOf(i).targetBallId !== null) pursuing++;
+    }
+    expect(pursuing).toBeGreaterThan(10);
+  });
+
+  it('sensing noise changes the outcome but stays deterministic', () => {
+    const config = cloneConfig(DEFAULT_CONFIG);
+    config.launch.pattern = 'salvo';
+    config.strategy.name = 'greedy';
+    const clean = runHash(config, 200);
+    config.sensing.noise = 0.5;
+    expect(runHash(config, 200)).toBe(runHash(config, 200));
+    expect(runHash(config, 200)).not.toBe(clean);
+  });
+});

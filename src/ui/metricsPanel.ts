@@ -1,5 +1,6 @@
 /**
- * Live metrics readout, fed by frames from the worker.
+ * Live metrics readout, fed by frames from the worker, including the gap to the oracle run
+ * on the same seed.
  */
 import type { MetricsSummary } from '../core/metrics/metrics';
 import { el } from './dom';
@@ -26,6 +27,9 @@ export class MetricsPanel {
       ['caught', 'Caught'],
       ['dropped', 'Dropped'],
       ['catchRate', 'Catch rate'],
+      ['oracleRate', 'Oracle, same seed'],
+      ['relative', 'Relative to oracle'],
+      ['nearMisses', 'Near-misses'],
       ['distance', 'Distance (m)'],
     ];
     const dl = el('dl', { class: 'readout' });
@@ -51,6 +55,7 @@ export class MetricsPanel {
     m: MetricsSummary,
     strategy: { name: string; isOracle: boolean },
     finished: boolean,
+    reference: MetricsSummary | null,
   ): void {
     this.set('tick', String(m.tick));
     this.set('time', m.time.toFixed(2));
@@ -59,7 +64,18 @@ export class MetricsPanel {
     this.set('inFlight', String(m.ballsInFlight));
     this.set('caught', String(m.ballsCaught));
     this.set('dropped', String(m.ballsDropped));
-    this.set('catchRate', `${(m.catchRate * 100).toFixed(1)}%`);
+    this.set('catchRate', percent(m.catchRate));
+    if (reference === null) {
+      this.set('oracleRate', strategy.isOracle ? '(this run)' : '—');
+      this.set('relative', '—');
+    } else {
+      this.set('oracleRate', `${percent(reference.catchRate)} (${reference.ballsCaught} caught)`);
+      this.set(
+        'relative',
+        reference.catchRate > 0 ? percent(m.catchRate / reference.catchRate) : '—',
+      );
+    }
+    this.set('nearMisses', String(m.nearMisses));
     this.set('distance', m.distanceTravelled.toFixed(0));
     this.strategyLine.textContent = strategy.isOracle
       ? `Strategy: ${strategy.name} — ORACLE benchmark (global knowledge)`
@@ -80,4 +96,8 @@ export class MetricsPanel {
     const cell = this.cells.get(key);
     if (cell !== undefined) cell.textContent = value;
   }
+}
+
+function percent(fraction: number): string {
+  return `${(fraction * 100).toFixed(1)}%`;
 }

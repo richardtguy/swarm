@@ -17,6 +17,8 @@
   --shadow: rgba(0, 0, 0, 0.45);
   --landing: rgba(255, 255, 255, 0.8);
   --target-line: rgba(20, 40, 90, 0.45);
+  --near-miss: #e5484d;
+  --sensing: rgba(255, 255, 255, 0.5);
   color-scheme: light dark;
 }
 
@@ -133,11 +135,27 @@ canvas.topdown2d {
   gap: 0.5rem 0.75rem;
 }
 
+.control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .control {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   color: var(--muted);
+}
+
+.slider input[type='range'] {
+  width: 7rem;
+}
+
+.slider .value {
+  min-width: 4.5rem;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
 }
 
 .readout {

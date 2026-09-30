@@ -24,6 +24,11 @@ export interface FrameMessage {
   /** Events since the previous frame. */
   events: SimEvent[];
   metrics: MetricsSummary;
+  /**
+   * Metrics of a shadow oracle run on the same seed, stepped in lockstep, so the gap to the
+   * benchmark is visible live. Null when the main run is itself the oracle.
+   */
+  reference: MetricsSummary | null;
   strategy: { name: string; isOracle: boolean };
   paused: boolean;
   finished: boolean;

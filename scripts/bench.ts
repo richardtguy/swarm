@@ -10,18 +10,22 @@ import { Simulation } from '../src/core/sim';
 
 interface Case {
   name: string;
+  strategy: string;
   fielders: number;
   balls: number;
   ticks: number;
 }
 
 const CASES: Case[] = [
-  { name: 'baseline 100 v 100', fielders: 100, balls: 100, ticks: 3000 },
-  { name: 'target   500 v 500', fielders: 500, balls: 500, ticks: 3000 },
+  { name: 'oracle 100 v 100', strategy: 'centralised', fielders: 100, balls: 100, ticks: 3000 },
+  { name: 'oracle 500 v 500', strategy: 'centralised', fielders: 500, balls: 500, ticks: 3000 },
+  { name: 'greedy 100 v 100', strategy: 'greedy', fielders: 100, balls: 100, ticks: 3000 },
+  { name: 'greedy 500 v 500', strategy: 'greedy', fielders: 500, balls: 500, ticks: 3000 },
 ];
 
 function runCase(c: Case): void {
   const config = cloneConfig(DEFAULT_CONFIG);
+  config.strategy.name = c.strategy;
   config.fielders.count = c.fielders;
   config.launch.count = c.balls;
   config.duration = c.ticks * config.dt;

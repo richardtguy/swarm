@@ -49,7 +49,7 @@ worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
       latest = message;
       needsDraw = true;
       controls.setPaused(message.paused);
-      metrics.update(message.metrics, message.strategy, message.finished);
+      metrics.update(message.metrics, message.strategy, message.finished, message.reference);
       break;
     case 'hash':
       metrics.showHash(message.tick, message.hash);

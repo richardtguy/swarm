@@ -12,7 +12,9 @@ export type SimEvent =
   /** A ball hit the ground uncaught. */
   | { type: 'DROP'; tick: number; ballId: number }
   /** A fielder was killed by command. */
-  | { type: 'KILL'; tick: number; fielderId: number };
+  | { type: 'KILL'; tick: number; fielderId: number }
+  /** Two fielders came closer than `minSeparation` (logged once per episode, a < b). */
+  | { type: 'NEAR_MISS'; tick: number; a: number; b: number; distance: number };
 
 /** Append-only event log with a drain for incremental consumers such as the worker. */
 export class EventLog {

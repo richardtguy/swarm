@@ -91,11 +91,28 @@ function main(): void {
     while (!sim.isFinished()) sim.step();
   }
 
+  const metrics = sim.metrics();
+  let reference: { strategy: string; catchRate: number; relativeCatchRate: number } | null = null;
+  if (!sim.strategyInfo.isOracle) {
+    // Oracle benchmark on the identical launch sequence, for the same number of ticks.
+    const refConfig = cloneConfig(config);
+    refConfig.strategy.name = 'centralised';
+    const ref = new Simulation(refConfig);
+    ref.run(sim.world.tick);
+    const refMetrics = ref.metrics();
+    reference = {
+      strategy: 'centralised',
+      catchRate: refMetrics.catchRate,
+      relativeCatchRate: refMetrics.catchRate > 0 ? metrics.catchRate / refMetrics.catchRate : 0,
+    };
+  }
+
   const output = {
     scenario: config.name,
     seed: config.seed,
     strategy: sim.strategyInfo,
-    metrics: sim.metrics(),
+    metrics,
+    reference,
     events: sim.events.count,
     hash: sim.hash(),
   };

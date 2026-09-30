@@ -1,8 +1,14 @@
 /**
- * Summary metrics computed from world state. Per-tick counters that cannot be recovered from
- * the state alone (messages, conflicts, collisions) are added in later phases.
+ * Summary metrics computed from world state plus the counters the simulation keeps for things
+ * the state alone cannot recover (near-misses; messages from Phase 3).
  */
 import { BallState, countAlive, type World } from '../state';
+
+/** Counters maintained by the simulation across ticks. */
+export interface RunCounters {
+  /** Near-miss episodes (pairs entering `minSeparation`) since init. */
+  nearMisses: number;
+}
 
 /** Headline numbers for a run so far. */
 export interface MetricsSummary {
@@ -19,10 +25,15 @@ export interface MetricsSummary {
   catchRate: number;
   /** Sum of distance travelled by all fielders (m). */
   distanceTravelled: number;
+  /** Near-miss episodes since init. */
+  nearMisses: number;
 }
 
-/** Compute the summary from the current world state. */
-export function computeMetrics(world: Readonly<World>): MetricsSummary {
+/** Compute the summary from the current world state and counters. */
+export function computeMetrics(
+  world: Readonly<World>,
+  counters: Readonly<RunCounters>,
+): MetricsSummary {
   let inFlight = 0;
   let caught = 0;
   let dropped = 0;
@@ -53,5 +64,6 @@ export function computeMetrics(world: Readonly<World>): MetricsSummary {
     ballsDropped: dropped,
     catchRate: settled > 0 ? caught / settled : 0,
     distanceTravelled: distance,
+    nearMisses: counters.nearMisses,
   };
 }
